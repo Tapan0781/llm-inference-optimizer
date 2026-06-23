@@ -393,10 +393,9 @@ def calculate_mfu(
 
 ## Current project phase
 
-> **Phase 2 — ONNX export pipeline (`src/export/`)** ← current
-> Implement `export_to_onnx`: load model id from `configs/model_configs/`,
-> export a HuggingFace LLaMA 3 decoder (with KV-cache / `*-with-past`) to ONNX,
-> and numerically verify the export against the PyTorch reference.
+> **Phase 3 — TensorRT engine builder + quantization (`src/optimization/`)** ← current
+> Build a TensorRT engine from the Phase 2 ONNX graph and add quantization
+> (INT8/FP8/AWQ). Consumes the verified `model.onnx` produced by `export_to_onnx`.
 > GPU-only — guarded by `is_cuda_available()`; runs on Colab, not on Mac.
 
 ### Phase status
@@ -405,8 +404,12 @@ def calculate_mfu(
   - Repo structure, configs, CI, `src/utils/env.py` + `logger.py` fully implemented.
   - Later-phase modules exist as contract-accurate stubs with GPU guards.
   - `calculate_mfu` + `BenchmarkResult` implemented (CPU-safe).
-- [ ] **Phase 2 — ONNX export pipeline (`src/export/`)** ← current
-- [ ] Phase 3: TensorRT engine builder + quantization (`src/optimization/`)
+- [x] **Phase 2 — ONNX export pipeline (`src/export/`)** *(done — validated on Colab T4)*
+  - `export_to_onnx` via HF Optimum (`text-generation-with-past`, KV-cache).
+  - `src/utils/config.py` loaders; tiny-model parity verified (max abs diff ~4e-8).
+  - Ecosystem notes: optimum 2.x → install `optimum-onnx`; onnxruntime-gpu CUDA
+    major must match torch's, else verification falls back to CPU ORT provider.
+- [ ] **Phase 3: TensorRT engine builder + quantization (`src/optimization/`)** ← current
 - [ ] Phase 4: Serving runtime + vLLM (`src/serving/`)
 - [ ] Phase 5: Profiling wrapper (`src/profiling/`)
 - [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
