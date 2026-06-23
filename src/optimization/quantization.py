@@ -38,8 +38,7 @@ def quantize_model(
     """
     if method not in _SUPPORTED_METHODS:
         raise ValueError(
-            f"Unsupported quantization method {method!r}. "
-            f"Expected one of {_SUPPORTED_METHODS}."
+            f"Unsupported quantization method {method!r}. Expected one of {_SUPPORTED_METHODS}."
         )
     if not is_cuda_available():
         raise RuntimeError(

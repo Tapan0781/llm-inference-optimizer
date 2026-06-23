@@ -27,7 +27,7 @@ def get_power_watts() -> float:
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         milliwatts = pynvml.nvmlDeviceGetPowerUsage(handle)
         pynvml.nvmlShutdown()
-        return milliwatts / 1000.0
+        return float(milliwatts) / 1000.0
     except Exception as exc:  # noqa: BLE001 -- NVML/driver errors vary; degrade gracefully
         logger.warning("NVML power read failed: %s", exc)
         return -1.0

@@ -69,7 +69,7 @@ def get_gpu_name() -> str:
         return "CPU-only"
     import torch
 
-    return torch.cuda.get_device_name(0)
+    return str(torch.cuda.get_device_name(0))
 
 
 def get_env_info() -> dict[str, object]:
