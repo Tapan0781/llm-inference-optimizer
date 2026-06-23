@@ -122,12 +122,23 @@ def _verify_export(model_name_or_path: str, onnx_dir: Path, dtype: str) -> None:
         RuntimeError: If logits diverge beyond tolerance.
     """
     import numpy as np
+    import onnxruntime as ort
     import torch
     from optimum.onnxruntime import ORTModelForCausalLM
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     logger.info("Verifying ONNX export against PyTorch reference (dtype=%s)...", dtype)
     tol = _TOLERANCES[dtype]
+
+    # Pick whichever ONNX Runtime provider is actually available. CUDA is
+    # preferred, but the parity check is correctness-only and runs fine on CPU
+    # — and CPU avoids onnxruntime-gpu/CUDA-major mismatches (e.g. an ORT wheel
+    # built for CUDA 13 on a CUDA 12 torch).
+    available = ort.get_available_providers()
+    provider = (
+        "CUDAExecutionProvider" if "CUDAExecutionProvider" in available else "CPUExecutionProvider"
+    )
+    logger.info("Verifying with ONNX Runtime provider: %s", provider)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
     prompt = "The quick brown fox jumps over the lazy dog."
@@ -142,7 +153,7 @@ def _verify_export(model_name_or_path: str, onnx_dir: Path, dtype: str) -> None:
         ref_logits = reference(**{k: v.to("cuda") for k, v in inputs.items()}).logits
     ref_last = ref_logits[:, -1, :].float().cpu().numpy()
 
-    onnx_model = ORTModelForCausalLM.from_pretrained(onnx_dir, provider="CUDAExecutionProvider")
+    onnx_model = ORTModelForCausalLM.from_pretrained(onnx_dir, provider=provider)
     onnx_out = onnx_model(**inputs)
     onnx_last = onnx_out.logits[:, -1, :].float().cpu().numpy()
 

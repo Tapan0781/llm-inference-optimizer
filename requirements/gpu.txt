@@ -5,6 +5,10 @@
 torch==2.3.0+cu121
 transformers>=4.40,<5.0
 onnx>=1.16
+# onnxruntime-gpu wheels are built against a specific CUDA major version — it
+# MUST match your torch CUDA build (e.g. cu12). If it mismatches (libcudart.so.NN
+# load error), install the matching ORT build or fall back to CPU `onnxruntime`
+# for export verification (the parity check is correctness-only).
 onnxruntime-gpu>=1.18
 tensorrt>=10.0
 pycuda>=2024.1
@@ -12,7 +16,9 @@ numpy>=1.26,<2.0
 pyyaml>=6.0
 
 # Export stack
-optimum[exporters]>=1.20
+# optimum 2.x split the ONNX exporter into the `optimum-onnx` package, which
+# re-adds optimum.exporters.onnx / optimum.onnxruntime under the optimum namespace.
+optimum-onnx>=0.1
 
 # Optimization / serving stack
 vllm>=0.4.2
