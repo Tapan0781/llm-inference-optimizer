@@ -31,7 +31,16 @@ jobs:
         run: black --check src/ tests/
 
       - name: Lint (mypy)
-        run: mypy src/
+        run: |
+          set +e
+          out="$(mypy src/ 2>&1)"
+          code=$?
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            esc="${out//'%'/'%25'}"; esc="${esc//$'\n'/'%0A'}"; esc="${esc//$'\r'/'%0D'}"
+            echo "::error title=mypy failure::${esc}"
+          fi
+          exit "$code"
 
       - name: Unit tests
         run: make test
