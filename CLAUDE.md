@@ -139,18 +139,41 @@ def get_env_info() -> dict
     """Returns dict with: device, gpu_name, cuda_version, torch_version, is_colab."""
 ```
 
+### `src/utils/config.py`
+
+```python
+def load_model_config(name_or_path: str) -> dict
+    """Loads + validates a model config from configs/model_configs/.
+    Accepts a bare name ('llama3_8b'), filename, or path. CPU-safe."""
+
+def load_benchmark_config(name_or_path: str = "default_sweep") -> dict
+    """Loads a sweep config from configs/benchmark_configs/. CPU-safe."""
+```
+
+Never read config YAML ad hoc — always go through these loaders.
+
 ### `src/export/onnx_exporter.py`
 
 ```python
 def export_to_onnx(
     model_name_or_path: str,
-    output_path: str,
+    output_path: str,            # destination DIRECTORY for ONNX artifacts
     dtype: str = "fp16",          # "fp32" | "fp16"
     opset_version: int = 17,
     verify_export: bool = True,
 ) -> str
-    """Exports HuggingFace LLM to ONNX. Returns output path. GPU required."""
+    """Exports HuggingFace LLM to ONNX. Returns path to model.onnx. GPU required."""
 ```
+
+**Export decisions (Phase 2):**
+- Backend: **HF Optimum** (`optimum.exporters.onnx.main_export`).
+- Task: **`text-generation-with-past`** — decoder *with* KV-cache + dynamic
+  axes. A cacheless export is useless for fast inference / the TRT build.
+- `verify_export=True` runs PyTorch-vs-ONNXRuntime last-token logit parity;
+  tolerances `fp32: atol=1e-4`, `fp16: atol=1e-2`.
+- Dev/validate on the ungated tiny model
+  `hf-internal-testing/tiny-random-LlamaForCausalLM` (free T4, no token);
+  real 8B needs `HF_TOKEN` + A100.
 
 ### `src/optimization/trt_builder.py`
 

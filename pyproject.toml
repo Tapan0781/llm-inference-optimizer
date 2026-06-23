@@ -46,6 +46,7 @@ files = ["src"]
 module = [
     "torch.*",
     "transformers.*",
+    "optimum.*",
     "onnx.*",
     "onnxruntime.*",
     "tensorrt.*",
