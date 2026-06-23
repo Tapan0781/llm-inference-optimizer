@@ -24,23 +24,8 @@ jobs:
           pip install -r requirements/base.txt -r requirements/dev.txt
           pip install -e .
 
-      - name: Lint (ruff)
-        run: ruff check src/ tests/
-
-      - name: Lint (black)
-        run: black --check src/ tests/
-
-      - name: Lint (mypy)
-        run: |
-          set +e
-          out="$(mypy src/ 2>&1)"
-          code=$?
-          echo "$out"
-          if [ "$code" -ne 0 ]; then
-            esc="${out//'%'/'%25'}"; esc="${esc//$'\n'/'%0A'}"; esc="${esc//$'\r'/'%0D'}"
-            echo "::error title=mypy failure::${esc}"
-          fi
-          exit "$code"
+      - name: Lint
+        run: make lint
 
       - name: Unit tests
         run: make test

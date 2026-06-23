@@ -39,6 +39,24 @@ disallow_untyped_defs = true
 ignore_missing_imports = true
 files = ["src"]
 
+# Do not type-check third-party libraries — only our own code. This also
+# avoids mypy internal-error crashes when following into heavy packages
+# (e.g. transformers on Python 3.11).
+[[tool.mypy.overrides]]
+module = [
+    "torch.*",
+    "transformers.*",
+    "onnx.*",
+    "onnxruntime.*",
+    "tensorrt.*",
+    "pycuda.*",
+    "pynvml.*",
+    "vllm.*",
+    "google.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
