@@ -1,0 +1,21 @@
+name: GPU Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["gpu-*"]
+
+jobs:
+  integration:
+    runs-on: [self-hosted, gpu]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/gpu.txt -r requirements/dev.txt
+          pip install -e .
+
+      - name: Integration tests (GPU)
+        run: pytest tests/integration/ -v

@@ -1,0 +1,11 @@
+model_id: "meta-llama/Meta-Llama-3-70B-Instruct"
+architecture: "llama"
+num_parameters_b: 70
+dtype: "fp16"
+max_seq_len: 8192
+vocab_size: 128256
+num_layers: 80
+num_heads: 64
+hidden_dim: 8192
+tp_degree: 4              # tensor parallel degree (multi-GPU for 70B)
+hf_token_required: true   # needs HF_TOKEN env var

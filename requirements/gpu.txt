@@ -1,0 +1,18 @@
+# GPU dependencies — install ONLY on CUDA-enabled machines (Colab / Lambda / RunPod).
+# Do NOT install on Mac. CUDA 12.1 build of torch.
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch==2.3.0+cu121
+transformers>=4.40,<5.0
+onnx>=1.16
+onnxruntime-gpu>=1.18
+tensorrt>=10.0
+pycuda>=2024.1
+numpy>=1.26,<2.0
+pyyaml>=6.0
+
+# Optimization / serving stack
+vllm>=0.4.2
+flash-attn>=2.5
+autoawq>=0.2.5
+pynvml>=11.5

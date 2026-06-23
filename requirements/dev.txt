@@ -1,0 +1,8 @@
+# Developer tooling — CPU-safe, installable everywhere.
+black==24.4.2
+ruff==0.4.8
+mypy==1.10.0
+pytest>=8.2
+ipykernel>=6.29
+pre-commit>=3.7
+types-PyYAML>=6.0

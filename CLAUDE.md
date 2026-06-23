@@ -1,0 +1,414 @@
+# CLAUDE.md — LLM Inference Optimizer
+
+This file gives Claude Code full project context. Read this before touching any file.
+
+---
+
+## Project identity
+
+**Name**: llm-inference-optimizer
+**Goal**: End-to-end GPU-accelerated LLM inference optimization pipeline with benchmarking framework
+**Target model**: LLaMA 3 (8B and 70B)
+**Stack**: PyTorch 2.3, CUDA, TensorRT, ONNX, vLLM, Nsight
+
+**Key results to achieve**:
+- 45% latency reduction vs baseline PyTorch eager
+- 2.3× throughput improvement
+- GPU MFU from ~25% → 60–75%
+- Full benchmark sweep: TTFT, TPOT, tokens/sec, MFU, power (NVML)
+
+---
+
+## Environment model
+
+This project runs in TWO environments. Every decision must respect both.
+
+### Local (Mac, CPU only)
+- Used for: writing code, scaffolding, configs, tests, git operations
+- No CUDA, no TensorRT, no GPU
+- Python 3.11, install from `requirements/base.txt` + `requirements/dev.txt`
+- Run with: `make setup-local`
+
+### Google Colab (GPU execution)
+- Used for: ONNX export, TRT engine build, quantization, benchmarking
+- GPU: T4 (free) or A100 (Pro/Pro+)
+- Install from `requirements/gpu.txt`
+- Entry point: `notebooks/00_colab_setup.ipynb`
+
+### Rule: every GPU code path must guard itself
+
+```python
+from src.utils.env import is_cuda_available
+
+if not is_cuda_available():
+    raise RuntimeError(
+        "GPU required for this operation. "
+        "Run on Google Colab (runtime > change runtime type > GPU) "
+        "or a CUDA-enabled machine."
+    )
+```
+
+Never silently fall back on CPU for GPU-only operations. Fail loudly with a clear message.
+
+---
+
+## Repository structure
+
+```
+llm-inference-optimizer/
+├── CLAUDE.md                        ← you are here
+├── README.md
+├── pyproject.toml                   # setuptools, ruff, black, mypy config
+├── Makefile                         # setup-local, lint, test, test-all, clean
+├── .gitignore
+├── .pre-commit-config.yaml          # black + ruff + mypy hooks
+│
+├── .github/workflows/
+│   ├── ci.yml                       # lint + unit tests on every push (CPU, ubuntu-latest)
+│   └── gpu_tests.yml                # integration tests on self-hosted GPU runner only
+│
+├── requirements/
+│   ├── base.txt                     # CPU-safe: torch (cpu), transformers, onnx, pyyaml
+│   ├── gpu.txt                      # GPU: torch (cu121), tensorrt, onnxruntime-gpu, vllm
+│   └── dev.txt                      # black, ruff, mypy, pytest, ipykernel, pre-commit
+│
+├── configs/
+│   ├── model_configs/
+│   │   ├── llama3_8b.yaml
+│   │   └── llama3_70b.yaml
+│   └── benchmark_configs/
+│       └── default_sweep.yaml
+│
+├── src/
+│   ├── utils/
+│   │   ├── env.py                   # is_cuda_available, is_colab, get_device, get_gpu_name
+│   │   └── logger.py                # structured logging
+│   ├── export/
+│   │   └── onnx_exporter.py         # HuggingFace → ONNX export
+│   ├── optimization/
+│   │   ├── quantization.py          # INT8 / FP8 / AWQ / GPTQ wrappers
+│   │   └── trt_builder.py           # TensorRT engine builder
+│   ├── serving/
+│   │   └── inference_engine.py      # unified backend: eager / ONNX / TRT
+│   ├── profiling/
+│   │   └── profiler.py              # PyTorch profiler + NVML power wrapper
+│   └── benchmarking/
+│       └── benchmark_runner.py      # sweep runner, saves results to results/
+│
+├── tests/
+│   ├── unit/                        # CPU-safe, always run in CI
+│   └── integration/                 # GPU-required, skipped if no CUDA
+│
+├── scripts/
+│   ├── setup_local.sh
+│   ├── setup_colab.sh
+│   └── run_benchmark.sh
+│
+├── notebooks/
+│   ├── 00_colab_setup.ipynb         # bootstrap: clone → install → verify GPU
+│   ├── 01_export.ipynb              # LLaMA 3 → ONNX
+│   ├── 02_optimize.ipynb            # quantization + TRT engine
+│   ├── 03_benchmark.ipynb           # full sweep
+│   └── 04_analysis.ipynb            # plots and results
+│
+└── results/                         # gitignored — benchmark outputs land here
+```
+
+---
+
+## Module contracts
+
+These are the exact interfaces. Do not change signatures without updating this file.
+
+### `src/utils/env.py`
+
+```python
+def is_cuda_available() -> bool
+    """Returns True if a CUDA GPU is accessible."""
+
+def is_colab() -> bool
+    """Returns True if running inside Google Colab."""
+
+def get_device() -> str
+    """Returns 'cuda' if GPU available, else 'cpu'."""
+
+def get_gpu_name() -> str
+    """Returns GPU model name, or 'CPU-only' if no GPU."""
+
+def get_env_info() -> dict
+    """Returns dict with: device, gpu_name, cuda_version, torch_version, is_colab."""
+```
+
+### `src/export/onnx_exporter.py`
+
+```python
+def export_to_onnx(
+    model_name_or_path: str,
+    output_path: str,
+    dtype: str = "fp16",          # "fp32" | "fp16"
+    opset_version: int = 17,
+    verify_export: bool = True,
+) -> str
+    """Exports HuggingFace LLM to ONNX. Returns output path. GPU required."""
+```
+
+### `src/optimization/trt_builder.py`
+
+```python
+def build_trt_engine(
+    onnx_path: str,
+    output_path: str,
+    precision: str = "fp16",      # "fp32" | "fp16" | "int8" | "fp8"
+    max_batch_size: int = 32,
+    max_seq_len: int = 2048,
+    workspace_gb: int = 8,
+) -> str
+    """Builds TensorRT engine from ONNX. Returns .engine path. GPU required."""
+```
+
+### `src/optimization/quantization.py`
+
+```python
+def quantize_model(
+    model_name_or_path: str,
+    method: str,                  # "int8" | "fp8" | "awq" | "gptq"
+    output_path: str,
+    calibration_dataset: str = "pileval",
+) -> str
+    """Quantizes model using specified method. Returns path to quantized model."""
+```
+
+### `src/serving/inference_engine.py`
+
+```python
+class InferenceEngine:
+    def __init__(
+        self,
+        model_path: str,
+        backend: str = "eager",   # "eager" | "onnx" | "trt" | "vllm"
+        dtype: str = "fp16",
+        device: str = "auto",
+    )
+    def generate(
+        self,
+        prompts: list[str],
+        max_new_tokens: int = 256,
+        temperature: float = 1.0,
+    ) -> list[str]
+
+    def warmup(self, n_iters: int = 5) -> None
+```
+
+### `src/benchmarking/benchmark_runner.py`
+
+```python
+@dataclass
+class BenchmarkResult:
+    model: str
+    backend: str
+    dtype: str
+    batch_size: int
+    seq_len: int
+    ttft_ms: float          # time to first token
+    tpot_ms: float          # time per output token
+    throughput_tps: float   # tokens per second
+    mfu_percent: float      # model FLOP utilization
+    gpu_mem_gb: float
+    power_watts: float      # from NVML, -1 if unavailable
+
+def run_sweep(
+    config_path: str,
+    engine: InferenceEngine,
+    output_dir: str = "results/",
+) -> list[BenchmarkResult]
+    """Runs full benchmark sweep from config. Saves CSV + JSON to output_dir."""
+```
+
+---
+
+## Config schemas
+
+### `configs/model_configs/llama3_8b.yaml`
+
+```yaml
+model_id: "meta-llama/Meta-Llama-3-8B-Instruct"
+architecture: "llama"
+num_parameters_b: 8
+dtype: "fp16"
+max_seq_len: 8192
+vocab_size: 128256
+num_layers: 32
+num_heads: 32
+hidden_dim: 4096
+tp_degree: 1              # tensor parallel degree (1 = single GPU)
+hf_token_required: true   # needs HF_TOKEN env var
+```
+
+### `configs/benchmark_configs/default_sweep.yaml`
+
+```yaml
+batch_sizes: [1, 4, 8, 16, 32]
+seq_lens: [128, 512, 1024, 2048]
+dtypes: ["fp16", "int8"]
+backends: ["eager", "trt"]
+warmup_iters: 5
+benchmark_iters: 50
+save_traces: false
+output_format: ["csv", "json"]
+```
+
+---
+
+## Coding standards
+
+- **Python 3.11+** — use `match`, `tomllib`, `Self` type where appropriate
+- **Type hints everywhere** — all function signatures, all class attributes
+- **Docstrings** — Google style, every public function and class
+- **Line length**: 100 characters (black + ruff configured in pyproject.toml)
+- **Imports**: stdlib → third-party → local, separated by blank lines (ruff enforces)
+- **No bare `except:`** — always catch specific exceptions
+- **No `print()`** in `src/` — use `src.utils.logger` instead
+- **GPU guards first** — check `is_cuda_available()` at the top of any GPU function, before any imports of tensorrt/pycuda
+- **Test every public function** — unit tests in `tests/unit/` must be CPU-safe and runnable with `pytest` locally
+
+---
+
+## Makefile targets
+
+```
+make setup-local    # pip install requirements/base.txt requirements/dev.txt
+make lint           # ruff check src/ tests/ + black --check + mypy src/
+make test           # pytest tests/unit/ -v
+make test-all       # pytest tests/ -v (skips GPU tests if no CUDA)
+make clean          # remove __pycache__, .pytest_cache, dist/, *.egg-info
+make format         # black src/ tests/ + ruff --fix src/ tests/
+```
+
+---
+
+## GitHub Actions
+
+### `ci.yml` — runs on every push and PR to `main`
+- OS: `ubuntu-latest`
+- Python: `3.11`
+- Steps: checkout → install base+dev → `make lint` → `make test`
+- Must pass before merge
+
+### `gpu_tests.yml` — runs only on self-hosted runner tagged `gpu`
+- Triggered manually or on push to `gpu-*` branches
+- Steps: checkout → install gpu requirements → `pytest tests/integration/ -v`
+
+---
+
+## Notebook conventions
+
+Every notebook must start with this cell:
+
+```python
+# ── Environment check ──────────────────────────────────────────
+import sys
+sys.path.insert(0, "/content/llm-inference-optimizer")  # Colab path
+sys.path.insert(0, "..")                                  # local path fallback
+
+from src.utils.env import get_env_info
+info = get_env_info()
+print(f"Device   : {info['device']}")
+print(f"GPU      : {info['gpu_name']}")
+print(f"CUDA     : {info['cuda_version']}")
+print(f"PyTorch  : {info['torch_version']}")
+print(f"Colab    : {info['is_colab']}")
+```
+
+Every notebook must end with this cell:
+
+```python
+# ── Save results to GitHub ─────────────────────────────────────
+import subprocess
+subprocess.run(["git", "add", "results/", "notebooks/"], check=True)
+subprocess.run(["git", "commit", "-m", f"results: {NOTEBOOK_NAME} run"], check=True)
+subprocess.run(["git", "push"], check=True)
+print("Results pushed to GitHub.")
+```
+
+---
+
+## New technology additions (beyond original spec)
+
+These are the additions that differentiate this project. Implement them in this order:
+
+| Technology | Module | Notes |
+|---|---|---|
+| FP8 quantization | `src/optimization/quantization.py` | H100 only via Transformer Engine |
+| Flash Attention v2 | `src/optimization/trt_builder.py` | use `flash-attn` package |
+| AWQ quantization | `src/optimization/quantization.py` | via `autoawq` package |
+| Speculative decoding (Medusa) | `src/serving/inference_engine.py` | via `medusa-llm` |
+| Continuous batching | `src/serving/inference_engine.py` | via vLLM backend |
+| Chunked prefill | `src/serving/inference_engine.py` | vLLM ≥ 0.4 |
+| NVML power tracking | `src/profiling/profiler.py` | via `pynvml` |
+| MFU calculation | `src/benchmarking/benchmark_runner.py` | formula below |
+
+### MFU formula to implement
+
+```python
+def calculate_mfu(
+    model_params: int,
+    tokens_per_second: float,
+    gpu_peak_tflops: float,        # A100 = 312, H100 = 989, T4 = 65
+    num_layers: int,
+    hidden_dim: int,
+) -> float:
+    """
+    MFU = actual_tflops / theoretical_peak_tflops
+    actual_tflops = 6 * num_params * tokens_per_second / 1e12
+    (factor of 6: 2 for matmul FLOPs × 3 for fwd+bwd, but inference = fwd only so use 2)
+    """
+    actual_tflops = 2 * model_params * tokens_per_second / 1e12
+    return (actual_tflops / gpu_peak_tflops) * 100  # as percentage
+```
+
+---
+
+## Current project phase
+
+> **Phase 1 — Scaffold + environment setup**
+> Building repo structure, configs, CI, and the `src/utils/env.py` module.
+> No GPU code yet. Everything must run cleanly on Mac (CPU only).
+
+Upcoming phases:
+- Phase 2: ONNX export pipeline (`src/export/`)
+- Phase 3: TensorRT engine builder + quantization (`src/optimization/`)
+- Phase 4: Serving runtime + vLLM (`src/serving/`)
+- Phase 5: Profiling wrapper (`src/profiling/`)
+- Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
+- Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
+
+---
+
+## Common commands reference
+
+```bash
+# Local dev
+make setup-local          # first time setup on Mac
+make lint                 # check code quality
+make test                 # run CPU-safe unit tests
+make format               # auto-fix formatting
+
+# Git
+git add . && git commit -m "feat: <description>"
+git push origin main
+
+# Colab (run in notebook cell)
+!git clone https://github.com/YOUR_USERNAME/llm-inference-optimizer.git
+!pip install -r llm-inference-optimizer/requirements/gpu.txt
+```
+
+---
+
+## Do not do these things
+
+- Do not install `tensorrt`, `pycuda`, or `flash-attn` in `requirements/base.txt` — Mac cannot install them
+- Do not call `torch.cuda.*` outside a `is_cuda_available()` guard
+- Do not hardcode model paths — always load from `configs/model_configs/`
+- Do not commit `results/`, `*.onnx`, `*.engine`, or `*.pt` files — they are gitignored
+- Do not use `print()` in `src/` modules — use the logger
+- Do not write notebooks that only work on Colab — the first two cells must work locally too

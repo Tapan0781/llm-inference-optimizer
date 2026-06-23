@@ -1,0 +1,11 @@
+model_id: "meta-llama/Meta-Llama-3-8B-Instruct"
+architecture: "llama"
+num_parameters_b: 8
+dtype: "fp16"
+max_seq_len: 8192
+vocab_size: 128256
+num_layers: 32
+num_heads: 32
+hidden_dim: 4096
+tp_degree: 1              # tensor parallel degree (1 = single GPU)
+hf_token_required: true   # needs HF_TOKEN env var
