@@ -370,17 +370,33 @@ def calculate_mfu(
 
 ## Current project phase
 
-> **Phase 1 — Scaffold + environment setup**
-> Building repo structure, configs, CI, and the `src/utils/env.py` module.
-> No GPU code yet. Everything must run cleanly on Mac (CPU only).
+> **Phase 2 — ONNX export pipeline (`src/export/`)** ← current
+> Implement `export_to_onnx`: load model id from `configs/model_configs/`,
+> export a HuggingFace LLaMA 3 decoder (with KV-cache / `*-with-past`) to ONNX,
+> and numerically verify the export against the PyTorch reference.
+> GPU-only — guarded by `is_cuda_available()`; runs on Colab, not on Mac.
 
-Upcoming phases:
-- Phase 2: ONNX export pipeline (`src/export/`)
-- Phase 3: TensorRT engine builder + quantization (`src/optimization/`)
-- Phase 4: Serving runtime + vLLM (`src/serving/`)
-- Phase 5: Profiling wrapper (`src/profiling/`)
-- Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
-- Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
+### Phase status
+
+- [x] **Phase 1 — Scaffold + environment setup** *(done — CI green on `main`)*
+  - Repo structure, configs, CI, `src/utils/env.py` + `logger.py` fully implemented.
+  - Later-phase modules exist as contract-accurate stubs with GPU guards.
+  - `calculate_mfu` + `BenchmarkResult` implemented (CPU-safe).
+- [ ] **Phase 2 — ONNX export pipeline (`src/export/`)** ← current
+- [ ] Phase 3: TensorRT engine builder + quantization (`src/optimization/`)
+- [ ] Phase 4: Serving runtime + vLLM (`src/serving/`)
+- [ ] Phase 5: Profiling wrapper (`src/profiling/`)
+- [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
+- [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
+
+### Cross-cutting conventions established in Phase 1
+
+- **mypy checks first-party code only.** `pyproject.toml` sets
+  `follow_imports = "skip"` for heavy third-party libs (`torch`, `transformers`,
+  …). This prevents mypy from analyzing/ crashing inside their stubs. Add any new
+  GPU-only dependency to that override list.
+- **GPU guards fail loudly** with the standard `"GPU required ..."` message — see
+  the stubs in `src/export`, `src/optimization`, `src/profiling`.
 
 ---
 
