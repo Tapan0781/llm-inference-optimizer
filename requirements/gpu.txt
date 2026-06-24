@@ -23,10 +23,15 @@ optimum-onnx>=0.1
 # Optimization / serving stack
 vllm>=0.4.2
 flash-attn>=2.5
-autoawq>=0.2.5
-# Quantization backends (Phase 3): GPTQ via auto-gptq, INT8 via bitsandbytes.
-# FP8 (Transformer Engine) is intentionally NOT listed — it is H100-only and not
-# installable/usable on the Colab T4/A100 tiers this project targets.
-auto-gptq>=0.7
+# Quantization backends (Phase 3). NOTE: the originally-planned autoawq and
+# auto-gptq are both deprecated and break against current transformers, so we use
+# their maintained successors:
+#   AWQ  -> llmcompressor (vLLM project)
+#   GPTQ -> gptqmodel
+#   INT8 -> bitsandbytes (calibration-free LLM.int8())
+# FP8 (Transformer Engine) is intentionally NOT listed — H100-only, not usable on
+# the Colab T4/A100 tiers this project targets.
+llmcompressor>=0.3
+gptqmodel>=1.4
 bitsandbytes>=0.43
 pynvml>=11.5

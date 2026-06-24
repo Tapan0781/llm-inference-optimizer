@@ -53,9 +53,10 @@ module = [
     "pycuda.*",
     "pynvml.*",
     "vllm.*",
-    "awq.*",
-    "auto_gptq.*",
+    "llmcompressor.*",
+    "gptqmodel.*",
     "bitsandbytes.*",
+    "datasets.*",
     "transformer_engine.*",
     "google.*",
 ]

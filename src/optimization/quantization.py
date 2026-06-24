@@ -1,12 +1,17 @@
 """Model quantization wrappers (INT8 / FP8 / AWQ / GPTQ).
 
-Each method is a thin wrapper around its mature ecosystem library, dispatched by
-name. The heavy, GPU-only libraries (``awq``, ``auto_gptq``, ``bitsandbytes``,
-``transformer_engine``) are imported lazily inside each helper, so this module
-imports cleanly on CPU/Mac and method/argument validation stays unit-testable.
+Each method is a thin wrapper around its *maintained* ecosystem library,
+dispatched by name. The heavy, GPU-only libraries are imported lazily inside each
+helper so this module imports cleanly on CPU/Mac and method/argument validation
+stays unit-testable.
 
-GPU-only. ``fp8`` additionally requires an H100-class (Hopper, SM 9.0+) GPU via
-Transformer Engine and is rejected elsewhere.
+Backend choices (the originally-planned autoawq / auto-gptq are both deprecated
+and broken against current transformers, so they were swapped out):
+
+* ``awq``  -> ``llmcompressor`` (the vLLM project's successor to AutoAWQ)
+* ``gptq`` -> ``gptqmodel`` (maintained successor to auto-gptq)
+* ``int8`` -> ``bitsandbytes`` LLM.int8() (calibration-free)
+* ``fp8``  -> Transformer Engine, gated to Hopper (SM 9.0+) and otherwise rejected
 """
 
 from __future__ import annotations
@@ -26,6 +31,28 @@ _GPU_REQUIRED_MSG = (
     "or a CUDA-enabled machine."
 )
 
+# Small offline calibration corpus, used when no concrete HF dataset id is given
+# (the default "pileval" sentinel). Keeps the smoke test deterministic and
+# network-free; real runs should pass a proper dataset id.
+_DEFAULT_CALIB_SAMPLES = (
+    "The quick brown fox jumps over the lazy dog.",
+    "In a hole in the ground there lived a hobbit.",
+    "It was the best of times, it was the worst of times.",
+    "All happy families are alike; each unhappy family is unhappy in its own way.",
+    "The mitochondrion is the powerhouse of the cell.",
+    "Energy equals mass times the speed of light squared.",
+    "To be, or not to be, that is the question.",
+    "The rain in Spain stays mainly in the plain.",
+    "A language model predicts the next token from the preceding context.",
+    "Quantization reduces the numerical precision of a model's weights.",
+    "Gradient descent iteratively minimizes a differentiable loss function.",
+    "Attention lets each token attend to every other token in the sequence.",
+    "The capital of France is Paris, a city on the river Seine.",
+    "Photosynthesis converts sunlight, water, and carbon dioxide into glucose.",
+    "Supply and demand jointly determine the equilibrium market price.",
+    "A binary search halves the search space on every comparison.",
+)
+
 
 def quantize_model(
     model_name_or_path: str,
@@ -39,8 +66,9 @@ def quantize_model(
         model_name_or_path: HF model id or local path.
         method: One of ``"int8"``, ``"fp8"``, ``"awq"``, ``"gptq"``.
         output_path: Destination directory for the quantized model.
-        calibration_dataset: Calibration dataset name. Used by ``awq``/``gptq``;
-            ignored by ``int8`` (bitsandbytes LLM.int8() is calibration-free).
+        calibration_dataset: HF dataset id for calibration (``awq``/``gptq``). The
+            default ``"pileval"`` selects a small built-in offline corpus; pass a
+            real dataset id for production runs. Ignored by ``int8``.
 
     Returns:
         The path to the quantized model directory.
@@ -72,44 +100,82 @@ def quantize_model(
     return str(out_dir)
 
 
+def _calibration_texts(calibration_dataset: str, n: int) -> list[str]:
+    """Return up to ``n`` calibration text samples.
+
+    If ``calibration_dataset`` names a real HF dataset, stream its first text
+    column; otherwise (the default ``"pileval"`` sentinel) fall back to the
+    built-in offline corpus, cycled to length ``n``.
+
+    Args:
+        calibration_dataset: HF dataset id, or ``"pileval"`` for the offline corpus.
+        n: Desired number of samples.
+
+    Returns:
+        A list of calibration strings.
+    """
+    if calibration_dataset and calibration_dataset != "pileval":
+        from datasets import load_dataset
+
+        stream = load_dataset(calibration_dataset, split="train", streaming=True)
+        texts: list[str] = []
+        for row in stream:
+            text = row.get("text") or next(
+                (v for v in row.values() if isinstance(v, str) and v.strip()), None
+            )
+            if text:
+                texts.append(text)
+            if len(texts) >= n:
+                break
+        if texts:
+            return texts
+        logger.warning("Dataset %r yielded no text; using built-in corpus.", calibration_dataset)
+
+    base = _DEFAULT_CALIB_SAMPLES
+    return [base[i % len(base)] for i in range(n)]
+
+
 def _quantize_awq(model_name_or_path: str, out_dir: Path, calibration_dataset: str) -> None:
-    """Quantize to 4-bit AWQ via ``autoawq`` and save to ``out_dir``.
+    """Quantize to 4-bit AWQ (W4A16) via ``llmcompressor`` and save to ``out_dir``.
 
     Args:
         model_name_or_path: HF model id or local path.
         out_dir: Destination directory.
-        calibration_dataset: Calibration dataset passed to ``model.quantize``.
+        calibration_dataset: HF dataset id, or ``"pileval"`` for the offline corpus.
     """
-    from awq import AutoAWQForCausalLM
-    from transformers import AutoTokenizer
+    from datasets import Dataset
+    from llmcompressor import oneshot
+    from llmcompressor.modifiers.awq import AWQModifier
 
-    quant_config = {"zero_point": True, "q_group_size": 128, "w_bit": 4, "version": "GEMM"}
-    model = AutoAWQForCausalLM.from_pretrained(model_name_or_path)
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, trust_remote_code=True)
+    texts = _calibration_texts(calibration_dataset, n=128)
+    calib = Dataset.from_dict({"text": texts})
+    recipe = AWQModifier(scheme="W4A16", targets="Linear", ignore=["lm_head"])
 
-    model.quantize(tokenizer, quant_config=quant_config, calib_data=calibration_dataset)
-    model.save_quantized(str(out_dir))
-    tokenizer.save_pretrained(str(out_dir))
+    oneshot(
+        model=model_name_or_path,
+        dataset=calib,
+        recipe=recipe,
+        output_dir=str(out_dir),
+        max_seq_length=512,
+        num_calibration_samples=len(texts),
+    )
 
 
 def _quantize_gptq(model_name_or_path: str, out_dir: Path, calibration_dataset: str) -> None:
-    """Quantize to 4-bit GPTQ via transformers ``GPTQConfig`` (auto-gptq backend).
+    """Quantize to 4-bit GPTQ via ``gptqmodel`` and save to ``out_dir``.
 
     Args:
         model_name_or_path: HF model id or local path.
         out_dir: Destination directory.
-        calibration_dataset: Calibration dataset name or sample list for GPTQ.
+        calibration_dataset: HF dataset id, or ``"pileval"`` for the offline corpus.
     """
-    from transformers import AutoModelForCausalLM, AutoTokenizer, GPTQConfig
+    from gptqmodel import GPTQModel, QuantizeConfig
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-    gptq_config = GPTQConfig(bits=4, dataset=calibration_dataset, tokenizer=tokenizer)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name_or_path, device_map="auto", quantization_config=gptq_config
-    )
-
-    model.save_pretrained(str(out_dir))
-    tokenizer.save_pretrained(str(out_dir))
+    texts = _calibration_texts(calibration_dataset, n=256)
+    quant_config = QuantizeConfig(bits=4, group_size=128)
+    model = GPTQModel.load(model_name_or_path, quant_config)
+    model.quantize(texts)
+    model.save(str(out_dir))
 
 
 def _quantize_int8(model_name_or_path: str, out_dir: Path, calibration_dataset: str) -> None:
