@@ -119,12 +119,25 @@ def _build_serialized_engine(
 
     trt_logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(trt_logger)
-    # Explicit-batch network. The EXPLICIT_BATCH flag was required on TRT < 10,
-    # deprecated on 10.x, and removed on 11.x (explicit batch is the only mode, so
-    # the flag is 0). Guard on the attribute so one call works across versions.
+
+    # Network creation flags vary by TRT major version:
+    #  - EXPLICIT_BATCH: required on TRT < 10, deprecated on 10.x, removed on 11.x
+    #    (explicit batch is now the only mode → flag absent → 0).
+    #  - STRONGLY_TYPED: on TRT 11 the global precision BuilderFlags (FP16/INT8)
+    #    were removed; precision is taken from the ONNX tensor types via a
+    #    strongly-typed network. We detect that regime by the absence of
+    #    BuilderFlag.FP16 and opt in. On older TRT we keep weak typing + the flag.
+    net_flags_enum = trt.NetworkDefinitionCreationFlag
     network_flags = 0
-    if hasattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH"):
-        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    if hasattr(net_flags_enum, "EXPLICIT_BATCH"):
+        network_flags |= 1 << int(net_flags_enum.EXPLICIT_BATCH)
+
+    strongly_typed = not hasattr(trt.BuilderFlag, "FP16") and hasattr(
+        net_flags_enum, "STRONGLY_TYPED"
+    )
+    if strongly_typed:
+        network_flags |= 1 << int(net_flags_enum.STRONGLY_TYPED)
+
     network = builder.create_network(network_flags)
     parser = trt.OnnxParser(network, trt_logger)
 
@@ -136,17 +149,24 @@ def _build_serialized_engine(
 
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gb << 30)
-    if precision == "fp16":
-        # NB: builder.platform_has_fast_fp16 was removed in TRT 10/11; modern
-        # targets (incl. T4) all have fast FP16, so we just enable the flag.
+    if strongly_typed:
+        logger.info(
+            "Strongly-typed network (TRT >= 11): engine precision follows the ONNX "
+            "tensor types; requested precision=%s is advisory (export the ONNX in the "
+            "desired dtype to control it).",
+            precision,
+        )
+    elif precision == "fp16":
         config.set_flag(trt.BuilderFlag.FP16)
 
     profile = _build_optimization_profile(builder, network, max_batch_size, max_seq_len)
     config.add_optimization_profile(profile)
 
     logger.info(
-        "Building TensorRT engine (precision=%s, max_batch=%d, max_seq=%d, workspace=%dGB)...",
+        "Building TensorRT engine (precision=%s, strongly_typed=%s, max_batch=%d, "
+        "max_seq=%d, workspace=%dGB)...",
         precision,
+        strongly_typed,
         max_batch_size,
         max_seq_len,
         workspace_gb,
@@ -230,5 +250,13 @@ def _verify_engine(engine_path: Path) -> None:
     if engine is None:
         raise RuntimeError(f"Engine verification FAILED: could not deserialize {engine_path}.")
 
-    bindings = [engine.get_tensor_name(i) for i in range(engine.num_io_tensors)]
-    logger.info("Engine verification PASSED: %d I/O tensors %s", len(bindings), bindings)
+    # I/O introspection (num_io_tensors / get_tensor_name) is TRT 8.5+; guard it so
+    # verification degrades gracefully rather than erroring on an older/newer API.
+    try:
+        bindings = [engine.get_tensor_name(i) for i in range(engine.num_io_tensors)]
+        logger.info("Engine verification PASSED: %d I/O tensors %s", len(bindings), bindings)
+    except AttributeError:
+        logger.info(
+            "Engine verification PASSED: engine deserialized OK "
+            "(I/O introspection unavailable on this TensorRT version)."
+        )
