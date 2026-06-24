@@ -137,8 +137,8 @@ def _build_serialized_engine(
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gb << 30)
     if precision == "fp16":
-        if not builder.platform_has_fast_fp16:
-            logger.warning("Platform reports no fast FP16; building FP16 anyway.")
+        # NB: builder.platform_has_fast_fp16 was removed in TRT 10/11; modern
+        # targets (incl. T4) all have fast FP16, so we just enable the flag.
         config.set_flag(trt.BuilderFlag.FP16)
 
     profile = _build_optimization_profile(builder, network, max_batch_size, max_seq_len)
