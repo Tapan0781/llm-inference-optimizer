@@ -393,10 +393,10 @@ def calculate_mfu(
 
 ## Current project phase
 
-> **Phase 3 — TensorRT engine builder + quantization (`src/optimization/`)** ← current
-> Build a TensorRT engine from the Phase 2 ONNX graph and add quantization
-> (INT8/FP8/AWQ). Consumes the verified `model.onnx` produced by `export_to_onnx`.
-> GPU-only — guarded by `is_cuda_available()`; runs on Colab, not on Mac.
+> **Phase 4 — Serving runtime + vLLM (`src/serving/`)** ← current
+> Implement the unified `InferenceEngine` (eager / ONNX / trt / vllm backends),
+> consuming the Phase 3 `.engine` and quantized artifacts. GPU-only for the
+> trt/vllm paths; guarded by `is_cuda_available()`.
 
 ### Phase status
 
@@ -409,8 +409,19 @@ def calculate_mfu(
   - `src/utils/config.py` loaders; tiny-model parity verified (max abs diff ~4e-8).
   - Ecosystem notes: optimum 2.x → install `optimum-onnx`; onnxruntime-gpu CUDA
     major must match torch's, else verification falls back to CPU ORT provider.
-- [ ] **Phase 3: TensorRT engine builder + quantization (`src/optimization/`)** ← current
-- [ ] Phase 4: Serving runtime + vLLM (`src/serving/`)
+- [x] **Phase 3 — TensorRT engine builder + quantization (`src/optimization/`)** *(done — CPU guard rails green; GPU paths to validate on Colab)*
+  - `build_trt_engine`: **fp16/fp32 implemented** — parses ONNX, builds a single
+    optimization profile over batch/sequence/past-length (static KV dims read
+    from the graph), serializes + deserialize-verifies the `.engine`. `int8`
+    (needs entropy calibrator) and `fp8` (needs ONNX Q/DQ + H100) raise
+    `NotImplementedError` *before* the GPU guard, so they're unit-testable.
+  - `quantize_model`: **awq / gptq / int8 implemented** (autoawq, transformers
+    `GPTQConfig`, bitsandbytes); `fp8` is gated to Hopper (SM 9.0+) and otherwise
+    raises — not runnable on Colab T4/A100.
+  - New deps in `requirements/gpu.txt`: `auto-gptq`, `bitsandbytes`. New mypy
+    overrides: `awq.*`, `auto_gptq.*`, `bitsandbytes.*`, `transformer_engine.*`.
+  - `notebooks/02_optimize.ipynb` wired: config → ONNX → engine → quantize.
+- [ ] Phase 4: Serving runtime + vLLM (`src/serving/`) ← current
 - [ ] Phase 5: Profiling wrapper (`src/profiling/`)
 - [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
 - [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)

@@ -53,6 +53,10 @@ module = [
     "pycuda.*",
     "pynvml.*",
     "vllm.*",
+    "awq.*",
+    "auto_gptq.*",
+    "bitsandbytes.*",
+    "transformer_engine.*",
     "google.*",
 ]
 ignore_missing_imports = true
