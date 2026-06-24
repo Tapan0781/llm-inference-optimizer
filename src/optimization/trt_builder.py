@@ -119,7 +119,13 @@ def _build_serialized_engine(
 
     trt_logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(trt_logger)
-    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+    # Explicit-batch network. The EXPLICIT_BATCH flag was required on TRT < 10,
+    # deprecated on 10.x, and removed on 11.x (explicit batch is the only mode, so
+    # the flag is 0). Guard on the attribute so one call works across versions.
+    network_flags = 0
+    if hasattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH"):
+        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    network = builder.create_network(network_flags)
     parser = trt.OnnxParser(network, trt_logger)
 
     logger.info("Parsing ONNX graph: %s", onnx_path)
