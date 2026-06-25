@@ -229,6 +229,32 @@ class InferenceEngine:
     def warmup(self, n_iters: int = 5) -> None
 ```
 
+### `src/profiling/profiler.py`
+
+```python
+def get_power_watts() -> float
+    """Instantaneous GPU board power via NVML, or -1.0 if unavailable."""
+
+@dataclass
+class ProfileResult:
+    ttft_ms: float            # time to first token
+    tpot_ms: float            # time per output token
+    throughput_tps: float     # generated tokens/sec across the batch
+    gpu_mem_gb: float         # peak CUDA memory (0.0 on CPU)
+    power_watts: float        # mean board power (-1.0 if NVML unavailable)
+    power_peak_watts: float   # peak board power (-1.0 if unavailable)
+
+def profile_generation(
+    engine,                   # InferenceEngine (any backend)
+    prompts: list[str],
+    max_new_tokens: int = 128,
+    warmup_iters: int = 3,
+) -> ProfileResult
+    """Black-box latency/power/memory profile. TTFT = single-token-run latency;
+    TPOT = marginal per-token cost from the full run. CUDA-synced timing.
+    Runs on CPU (timing) with GPU-only metrics degrading to sentinels."""
+```
+
 ### `src/benchmarking/benchmark_runner.py`
 
 ```python
@@ -468,7 +494,13 @@ def calculate_mfu(
     self-heals the cu13-on-cu12 runtime: preloads the bundled `nvidia/cu*` libs,
     adds them to `LD_LIBRARY_PATH` for spawned workers, and forces
     `VLLM_WORKER_MULTIPROC_METHOD=spawn` (CUDA can't init in a forked child).
-- [ ] Phase 5: Profiling wrapper (`src/profiling/`) ← current
+- [~] **Phase 5 — Profiling wrapper (`src/profiling/`)** ← current *(core validated on CPU; GPU power/mem Colab-pending)*
+  - `profile_generation` (black-box over any `InferenceEngine` backend): TTFT =
+    single-token-run latency, TPOT = marginal per-token cost, throughput, peak
+    CUDA mem, mean/peak NVML power. CUDA-synced timing; CPU-runnable with the
+    eager backend (real CPU unit tests, GPU metrics degrade to sentinels).
+  - `_PowerSampler`: background NVML thread (mean + peak) over the timed run.
+  - torch.profiler op-level trace capture (`save_traces`) deferred to a follow-up.
 - [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
 - [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
 
