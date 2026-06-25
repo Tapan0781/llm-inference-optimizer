@@ -6,5 +6,15 @@
 # trap as the AWQ/GPTQ split). Serving is its own pipeline stage anyway — it loads
 # a model checkpoint / HF id and serves it — so a dedicated kernel is the correct
 # structure. Continuous batching + chunked prefill are provided by vLLM itself.
+#
+# CUDA MATCHING (important): vLLM's default PyPI wheel may target a different CUDA
+# major than the runtime's torch (e.g. on Colab, torch is cu128 but the default
+# vllm wheel was cu13 -> "libcudart.so.13: cannot open shared object file"). Do NOT
+# `pip install vllm` blindly. Install the wheel that MATCHES the installed torch:
+#
+#   pip install uv
+#   uv pip install --system vllm --torch-backend=auto   # detects torch's CUDA
+#
+# (`--torch-backend=auto` picks the vllm build matching the installed torch.)
 
 vllm>=0.6
