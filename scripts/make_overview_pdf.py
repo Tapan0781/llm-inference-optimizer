@@ -136,8 +136,8 @@ def main() -> None:
     )
     bullet(
         pdf,
-        "~3x more throughput and ~70% less waiting per word using the vLLM engine versus the "
-        "standard baseline - identical hardware and model (peaking at ~1,325 words/second).",
+        "~3x more throughput and ~65% less waiting per word using the vLLM engine versus the "
+        "standard baseline - identical hardware and model (peaking at ~1,150 words/second).",
     )
     bullet(
         pdf,
