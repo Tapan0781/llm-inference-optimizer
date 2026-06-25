@@ -140,7 +140,16 @@ def run_sweep(
                 )
                 continue
             prompts = _synth_prompts(batch_size, seq_len)
-            profile = profile_generation(engine, prompts, max_new_tokens, warmup_iters)
+            try:
+                profile = profile_generation(engine, prompts, max_new_tokens, warmup_iters)
+            except Exception as exc:  # noqa: BLE001 -- never lose the whole sweep to one point
+                logger.warning(
+                    "Grid point batch=%d seq_len=%d failed (%s); skipping, keeping prior results.",
+                    batch_size,
+                    seq_len,
+                    exc,
+                )
+                continue
             mfu = _mfu_percent(metadata, profile.throughput_tps, gpu_tflops)
             results.append(
                 BenchmarkResult(

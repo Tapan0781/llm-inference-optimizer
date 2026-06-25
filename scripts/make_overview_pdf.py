@@ -136,12 +136,12 @@ def main() -> None:
     )
     bullet(
         pdf,
-        "~2.3x more throughput and ~57% less waiting per word using the vLLM engine versus "
-        "the standard baseline - identical hardware and model.",
+        "~3x more throughput and ~70% less waiting per word using the vLLM engine versus the "
+        "standard baseline - identical hardware and model (peaking at ~1,325 words/second).",
     )
     bullet(
         pdf,
-        "~24x more throughput from batching alone: serving 32 requests together instead of "
+        "~24x more throughput from batching alone: serving many requests together instead of "
         "one at a time (28 -> 686 words per second).",
     )
     bullet(

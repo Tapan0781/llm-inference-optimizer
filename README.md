@@ -25,11 +25,23 @@ Measured highlights (TinyLlama-1.1B on a T4 — same hardware/model across backe
 
 | Result | Measurement |
 |---|---|
-| **vLLM vs eager throughput** | **~2.3× higher** (66 vs 28 tok/s, batch 1) |
-| **vLLM vs eager per-token latency** | **~57% lower** (TPOT 14.9 ms vs 35 ms) |
+| **vLLM vs eager throughput** | **~3× higher** across batch sizes (e.g. 98 vs 28 tok/s; **peak 1325 tok/s** at batch 16) |
+| **vLLM vs eager per-token latency** | **~70% lower** (TPOT ~10 ms vs ~33 ms) |
 | **Batching gain (eager)** | **~24× throughput** (28 → 686 tok/s, batch 1 → 32) |
 | **Quantization** | model **~3× smaller** (2.2 GB → ~0.76 GB, AWQ/GPTQ 4-bit) |
-| **Power / memory** | captured live via NVML (~45–67 W under load) |
+| **Power / memory** | captured live via NVML (~45–69 W under load) |
+
+<details><summary>Throughput by batch size (seq 128, tok/s) — eager vs vLLM</summary>
+
+| batch | eager | vLLM | speedup |
+|---:|---:|---:|---:|
+| 1  | 28.4  | 98.1   | 3.5× |
+| 4  | 105.6 | 352.1  | 3.3× |
+| 8  | 234.8 | 687.3  | 2.9× |
+| 16 | 447.4 | 1325.7 | 3.0× |
+
+*TinyLlama-1.1B, free Colab T4, 128 output tokens.*
+</details>
 
 *These come from a small model on free hardware; the same pipeline scales to LLaMA 3
 8B on an A100 (config + notebook tier included), where the absolute gains are larger.*

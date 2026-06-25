@@ -62,6 +62,39 @@ def test_run_sweep_skips_oversized_seq(tmp_path: Path, eager_engine: InferenceEn
     assert results == []  # the single grid point is skipped (exceeds context)
 
 
+class _FlakyEngine:
+    """Stub engine that fails generation once batch_size > 1 (simulates a mid-sweep crash)."""
+
+    model_path = "stub/model"
+    backend = "eager"
+    dtype = "fp16"
+    _model = None
+
+    def warmup(self, n_iters: int = 5) -> None:
+        pass
+
+    def generate(self, prompts: list[str], max_new_tokens: int = 1, temperature: float = 1.0):
+        if len(prompts) > 1:
+            raise RuntimeError("simulated engine death")
+        return ["x" for _ in prompts]
+
+
+def test_run_sweep_survives_grid_point_failure(tmp_path: Path) -> None:
+    cfg = tmp_path / "sweep.yaml"
+    cfg.write_text(
+        "batch_sizes: [1, 4]\nseq_lens: [4]\nmax_new_tokens: 4\nwarmup_iters: 1\n"
+        "output_format: [json]\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "results"
+    results = run_sweep(str(cfg), _FlakyEngine(), str(out))  # type: ignore[arg-type]
+
+    # batch=1 succeeds, batch=4 raises -> kept the good one, still wrote the file.
+    assert len(results) == 1
+    assert results[0].batch_size == 1
+    assert (out / "benchmark_eager_fp16.json").exists()
+
+
 def _write_cfg(tmp_path: Path) -> Path:
     cfg = tmp_path / "sweep.yaml"
     cfg.write_text(
