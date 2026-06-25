@@ -69,8 +69,8 @@ src/utils/           env detection, logging, config loaders   ✅ Phase 1 (done)
 src/export/          HuggingFace → ONNX (optimum, KV-cache)    ✅ Phase 2 (done, Colab-validated)
 src/optimization/    TensorRT engine build + quantization      ✅ Phase 3 (done, Colab-validated)
 src/serving/         unified InferenceEngine                   ✅ Phase 4 (eager/onnx/vllm validated)
-src/profiling/       PyTorch profiler + NVML power             ⏳ Phase 5
-src/benchmarking/    sweep runner + MFU                        ⏳ Phase 6 (MFU + result schema done)
+src/profiling/       PyTorch profiler + NVML power             ✅ Phase 5 (validated on Colab)
+src/benchmarking/    sweep runner + MFU                        🚧 Phase 6 (MFU + result schema done)
 notebooks/           Colab GPU workflows (00–04)
 tests/unit/          CPU-safe, run in CI
 tests/integration/   GPU-only, auto-skipped on CPU
@@ -98,9 +98,12 @@ tests/integration/   GPU-only, auto-skipped on CPU
     (lib preload + `LD_LIBRARY_PATH` + spawn workers).
   - **trt** serving (hand-rolled decode loop) and **Medusa** speculative decoding
     are deferred to follow-ups.
-- ⏳ **Phase 5 — Profiling.** PyTorch profiler + NVML power wrapper.
-- ⏳ **Phase 6 — Benchmarking.** Full sweep (`run_sweep`): TTFT, TPOT, tokens/sec,
-  MFU, power → CSV/JSON.
+- ✅ **Phase 5 — Profiling.** *Validated on Colab T4.* `profile_generation`
+  (black-box over any backend): TTFT, TPOT, throughput, peak CUDA memory, and
+  mean/peak NVML power (background sampler). CPU-runnable for timing; GPU metrics
+  degrade to sentinels off-GPU. torch.profiler op-level traces deferred.
+- 🚧 **Phase 6 — Benchmarking.** Full sweep (`run_sweep`): drives the engine
+  across the config grid, profiles each, computes MFU → CSV/JSON.
 - ⏳ **Phase 7 — Nsight.** Requires bare-metal GPU (Lambda Labs / RunPod).
 
 ## Engineering notes (hard-won, GPU-validated)

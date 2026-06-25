@@ -427,10 +427,11 @@ def calculate_mfu(
 
 ## Current project phase
 
-> **Phase 5 — Profiling wrapper (`src/profiling/`)** ← current
-> PyTorch profiler + NVML power tracking (`pynvml`). Wraps `InferenceEngine`
-> runs to capture latency traces + power; feeds the Phase 6 benchmark sweep.
-> GPU-only paths guarded by `is_cuda_available()`.
+> **Phase 6 — Benchmarking sweep (`src/benchmarking/`)** ← current
+> `run_sweep`: drive `InferenceEngine` across the config grid (batch × seq ×
+> dtype × backend), call `profile_generation`, compute MFU via `calculate_mfu`,
+> and write `BenchmarkResult` rows to CSV + JSON. `calculate_mfu` +
+> `BenchmarkResult` already exist (Phase 1, CPU-safe).
 
 ### Phase status
 
@@ -494,12 +495,14 @@ def calculate_mfu(
     self-heals the cu13-on-cu12 runtime: preloads the bundled `nvidia/cu*` libs,
     adds them to `LD_LIBRARY_PATH` for spawned workers, and forces
     `VLLM_WORKER_MULTIPROC_METHOD=spawn` (CUDA can't init in a forked child).
-- [~] **Phase 5 — Profiling wrapper (`src/profiling/`)** ← current *(core validated on CPU; GPU power/mem Colab-pending)*
+- [x] **Phase 5 — Profiling wrapper (`src/profiling/`)** *(done — validated on Colab T4)*
   - `profile_generation` (black-box over any `InferenceEngine` backend): TTFT =
     single-token-run latency, TPOT = marginal per-token cost, throughput, peak
     CUDA mem, mean/peak NVML power. CUDA-synced timing; CPU-runnable with the
     eager backend (real CPU unit tests, GPU metrics degrade to sentinels).
   - `_PowerSampler`: background NVML thread (mean + peak) over the timed run.
+  - Colab T4 validation (TinyLlama-1.1B): TTFT 90.8ms, TPOT 26.9ms, 69 tok/s,
+    mem 2.21GB (matches fp16 weights), power 45.2W mean / 53.2W peak.
   - torch.profiler op-level trace capture (`save_traces`) deferred to a follow-up.
 - [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
 - [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
