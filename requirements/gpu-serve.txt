@@ -1,0 +1,10 @@
+# GPU dependencies — vLLM SERVING stage ONLY.
+# Install in a SEPARATE environment / Colab session from requirements/gpu.txt.
+#
+# Why separate: vLLM pins its own torch/transformers and pulls a large dependency
+# tree; bundling it with the export/TRT stack causes version conflicts (the same
+# trap as the AWQ/GPTQ split). Serving is its own pipeline stage anyway — it loads
+# a model checkpoint / HF id and serves it — so a dedicated kernel is the correct
+# structure. Continuous batching + chunked prefill are provided by vLLM itself.
+
+vllm>=0.6

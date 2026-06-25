@@ -32,10 +32,11 @@ pyyaml>=6.0
 # re-adds optimum.exporters.onnx / optimum.onnxruntime under the optimum namespace.
 optimum-onnx>=0.1
 
-# Optimization / serving stack
-vllm>=0.4.2
+# Optimization stack
 flash-attn>=2.5
 # INT8 quantization (calibration-free LLM.int8()). Lives in this stack because
 # bitsandbytes is transformers-version-agnostic; AWQ/GPTQ do not (see gpu-quant.txt).
 bitsandbytes>=0.43
 pynvml>=11.5
+# NOTE: vLLM (the serving backend) lives in requirements/gpu-serve.txt — it pins
+# its own torch/transformers and must run in a separate environment.

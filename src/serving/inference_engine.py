@@ -127,12 +127,45 @@ class InferenceEngine:
         logger.info("Eager backend ready on %s.", self.device)
 
     def _init_onnx(self) -> None:
-        """Load the ONNX backend (implemented in a later Phase 4 step)."""
-        raise NotImplementedError("The onnx backend lands in a later Phase 4 step.")
+        """Load the optimum ORT model + tokenizer for the ONNX backend.
+
+        ``model_path`` is the directory produced by Phase 2's ``export_to_onnx``
+        (containing ``model.onnx``). Picks the CUDA ORT provider when available,
+        else CPU — mirroring the Phase 2 verification path.
+        """
+        import onnxruntime as ort
+        from optimum.onnxruntime import ORTModelForCausalLM
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "left"
+        self._tokenizer = tokenizer
+
+        available = ort.get_available_providers()
+        provider = (
+            "CUDAExecutionProvider"
+            if "CUDAExecutionProvider" in available
+            else "CPUExecutionProvider"
+        )
+        self._model = ORTModelForCausalLM.from_pretrained(self.model_path, provider=provider)
+        logger.info("ONNX backend ready (provider=%s).", provider)
 
     def _init_vllm(self) -> None:
-        """Load the vLLM backend (implemented in a later Phase 4 step)."""
-        raise NotImplementedError("The vllm backend lands in a later Phase 4 step.")
+        """Load the vLLM engine.
+
+        Continuous batching is inherent to vLLM's scheduler; chunked prefill is
+        enabled explicitly. vLLM tokenizes internally, so no separate tokenizer is
+        kept. Runs in its own environment (``requirements/gpu-serve.txt``).
+        """
+        from vllm import LLM
+
+        vllm_dtype = "float16" if self.dtype == "fp16" else "float32"
+        self._model = LLM(model=self.model_path, dtype=vllm_dtype, enable_chunked_prefill=True)
+        logger.info(
+            "vLLM backend ready (continuous batching + chunked prefill, dtype=%s).", vllm_dtype
+        )
 
     def _init_trt(self) -> None:
         """Load the TensorRT backend (deferred)."""
@@ -161,26 +194,53 @@ class InferenceEngine:
         """
         if not prompts:
             return []
-        if self.backend == "eager":
-            return self._generate_eager(prompts, max_new_tokens, temperature)
+        if self.backend in ("eager", "onnx"):
+            # Both wrap a HF GenerationMixin (.generate). Eager tensors live on
+            # self.device; the ORT model manages its own device, so leave inputs on CPU.
+            return self._generate_hf(prompts, max_new_tokens, temperature, self.backend == "eager")
+        if self.backend == "vllm":
+            return self._generate_vllm(prompts, max_new_tokens, temperature)
         raise NotImplementedError(f"generate for backend {self.backend!r} is not implemented yet.")
 
-    def _generate_eager(
+    def _generate_vllm(
         self, prompts: list[str], max_new_tokens: int, temperature: float
     ) -> list[str]:
-        """Eager-backend generation via ``model.generate``.
+        """vLLM-backend generation. Returns completions in input order.
+
+        Args:
+            prompts: Input prompts.
+            max_new_tokens: Max new tokens per prompt.
+            temperature: Sampling temperature; ``0`` means greedy in vLLM.
+
+        Returns:
+            The generated completion text per prompt.
+        """
+        from vllm import SamplingParams
+
+        params = SamplingParams(temperature=max(temperature, 0.0), max_tokens=max_new_tokens)
+        request_outputs = self._model.generate(prompts, params)
+        return [ro.outputs[0].text for ro in request_outputs]
+
+    def _generate_hf(
+        self, prompts: list[str], max_new_tokens: int, temperature: float, to_device: bool
+    ) -> list[str]:
+        """Generation via a HF ``.generate`` (shared by eager and onnx backends).
 
         Args:
             prompts: Input prompts.
             max_new_tokens: Max new tokens per prompt.
             temperature: Sampling temperature; ``0`` means greedy.
+            to_device: Move tokenized inputs to ``self.device`` (eager); the ORT
+                model handles its own placement, so onnx passes ``False``.
 
         Returns:
             The decoded completions (prompt tokens stripped).
         """
         import torch
 
-        inputs = self._tokenizer(prompts, return_tensors="pt", padding=True).to(self.device)
+        inputs = self._tokenizer(prompts, return_tensors="pt", padding=True)
+        if to_device:
+            inputs = inputs.to(self.device)
         gen_kwargs = self._sampling_kwargs(max_new_tokens, temperature)
         with torch.no_grad():
             output_ids = self._model.generate(**inputs, **gen_kwargs)

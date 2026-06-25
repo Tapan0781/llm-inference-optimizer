@@ -36,9 +36,11 @@ This project runs in TWO environments. Every decision must respect both.
 - **The GPU stack is split across TWO environments** (they need incompatible
   transformers majors and are separate pipeline stages chained by on-disk
   checkpoints — do not try to install both in one kernel):
-  - `requirements/gpu.txt` — export / TensorRT / INT8 / serving (transformers <5.0)
+  - `requirements/gpu.txt` — export / TensorRT / INT8 (transformers <5.0)
   - `requirements/gpu-quant.txt` — AWQ + GPTQ only (transformers 5.x, via
     `llmcompressor` + `gptqmodel`)
+  - `requirements/gpu-serve.txt` — vLLM serving backend (pins its own
+    torch/transformers; continuous batching + chunked prefill)
 
 ### Rule: every GPU code path must guard itself
 
@@ -371,8 +373,8 @@ These are the additions that differentiate this project. Implement them in this 
 | AWQ quantization | `src/optimization/quantization.py` | via `llmcompressor` (autoawq is deprecated/broken) |
 | GPTQ quantization | `src/optimization/quantization.py` | via `gptqmodel` (auto-gptq fails to build) |
 | Speculative decoding (Medusa) | `src/serving/inference_engine.py` | via `medusa-llm` |
-| Continuous batching | `src/serving/inference_engine.py` | via vLLM backend |
-| Chunked prefill | `src/serving/inference_engine.py` | vLLM ≥ 0.4 |
+| Continuous batching | `src/serving/inference_engine.py` | via vLLM backend (inherent to its scheduler) |
+| Chunked prefill | `src/serving/inference_engine.py` | vLLM `enable_chunked_prefill=True` |
 | NVML power tracking | `src/profiling/profiler.py` | via `pynvml` |
 | MFU calculation | `src/benchmarking/benchmark_runner.py` | formula below |
 
@@ -400,9 +402,9 @@ def calculate_mfu(
 ## Current project phase
 
 > **Phase 4 — Serving runtime + vLLM (`src/serving/`)** ← current
-> Implement the unified `InferenceEngine` (eager / ONNX / trt / vllm backends),
-> consuming the Phase 3 `.engine` and quantized artifacts. GPU-only for the
-> trt/vllm paths; guarded by `is_cuda_available()`.
+> Unified `InferenceEngine`: `eager` (CPU+GPU), `onnx`, `vllm` implemented;
+> `trt` serving deferred (hand-rolled decode loop). GPU backends guarded by
+> `is_cuda_available()`. vLLM runs in its own env (`gpu-serve.txt`).
 
 ### Phase status
 
@@ -450,7 +452,16 @@ def calculate_mfu(
       (`TinyLlama/TinyLlama-1.1B-Chat-v1.0`, ungated). tiny-random is fine for
       export/TRT (graph structure) but not for quantization.
   - `notebooks/02_optimize.ipynb` wired: config → ONNX → engine → quantize.
-- [ ] Phase 4: Serving runtime + vLLM (`src/serving/`) ← current
+- [~] **Phase 4 — Serving runtime + vLLM (`src/serving/`)** ← current *(eager validated on CPU; onnx/vllm implemented, Colab validation pending)*
+  - `InferenceEngine`: **eager** (HF `.generate`, CPU+GPU) — real CPU unit tests
+    (generation, greedy determinism, batch, warmup), not just guard rails.
+  - **onnx** via `ORTModelForCausalLM.generate` (shares the HF generate path,
+    consumes the Phase 2 export dir); **vllm** via `vllm.LLM` + `SamplingParams`
+    with continuous batching + chunked prefill. Both Colab-pending.
+  - **trt** serving backend deferred — raw engine execution needs a hand-rolled
+    autoregressive decode loop over the KV-cache bindings (separate follow-up).
+  - vLLM isolated in `requirements/gpu-serve.txt` (own torch/transformers pin).
+  - Medusa speculative decoding deferred to a later mini-phase.
 - [ ] Phase 5: Profiling wrapper (`src/profiling/`)
 - [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
 - [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
