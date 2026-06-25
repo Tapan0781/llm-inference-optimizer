@@ -25,22 +25,26 @@ Measured highlights (TinyLlama-1.1B on a T4 — same hardware/model across backe
 
 | Result | Measurement |
 |---|---|
-| **vLLM vs eager throughput** | **~3× higher** across batch sizes (e.g. 98 vs 28 tok/s; **peak 1325 tok/s** at batch 16) |
-| **vLLM vs eager per-token latency** | **~70% lower** (TPOT ~10 ms vs ~33 ms) |
+| **vLLM vs eager throughput** | **~2.6–3.2× higher** (avg ~2.8×); **peak 1159 tok/s** at batch 16 |
+| **vLLM vs eager per-token latency** | **~65% lower** (TPOT ~12 ms vs ~34 ms) |
 | **Batching gain (eager)** | **~24× throughput** (28 → 686 tok/s, batch 1 → 32) |
 | **Quantization** | model **~3× smaller** (2.2 GB → ~0.76 GB, AWQ/GPTQ 4-bit) |
 | **Power / memory** | captured live via NVML (~45–69 W under load) |
+
+![eager vs vLLM — throughput and latency by batch size](docs/benchmarks/backend_comparison.png)
 
 <details><summary>Throughput by batch size (seq 128, tok/s) — eager vs vLLM</summary>
 
 | batch | eager | vLLM | speedup |
 |---:|---:|---:|---:|
-| 1  | 28.4  | 98.1   | 3.5× |
-| 4  | 105.6 | 352.1  | 3.3× |
-| 8  | 234.8 | 687.3  | 2.9× |
-| 16 | 447.4 | 1325.7 | 3.0× |
+| 1  | 28.4  | 74.8   | 2.6× |
+| 4  | 105.6 | 334.4  | 3.2× |
+| 8  | 234.8 | 635.8  | 2.7× |
+| 16 | 447.4 | 1158.6 | 2.6× |
 
-*TinyLlama-1.1B, free Colab T4, 128 output tokens.*
+*TinyLlama-1.1B, free Colab T4, 128 output tokens. Source data + chart script:
+[`docs/benchmarks/`](docs/benchmarks/). vLLM's EngineCore hits a T4 memory ceiling
+above batch 16; the sweep saves all completed points (run-to-run variance ~±15%).*
 </details>
 
 *These come from a small model on free hardware; the same pipeline scales to LLaMA 3

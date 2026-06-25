@@ -74,9 +74,9 @@ stage feeds the next.
 Everything was built **and proven on a real GPU** (a free Google Colab T4),
 end to end. Highlights from the measured results:
 
-- **~3x more throughput** and **~70% less waiting per word** when using the
+- **~3x more throughput** and **~65% less waiting per word** when using the
   vLLM engine versus the standard baseline — on identical hardware and model
-  (peaking at ~1,325 words per second).
+  (peaking at ~1,150 words per second).
 - **~24x more throughput** from "batching" alone: serving many requests together
   instead of one at a time (28 -> 686 words per second) — the model does far more
   useful work per second when kept busy.
