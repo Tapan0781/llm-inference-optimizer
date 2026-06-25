@@ -441,6 +441,13 @@ def calculate_mfu(
       transformers; auto-gptq won't build). Replaced by `llmcompressor`/`gptqmodel`,
       which require **transformers 5.x** — hence the two-env split (`gpu.txt` vs
       `gpu-quant.txt`); AWQ/GPTQ run in their own Colab session.
+    - **Quantization needs a real model, not `tiny-random`.** AWQ/GPTQ do
+      group-wise 4-bit quant (`group_size=128`), which requires weight dims
+      divisible by 128; the tiny-random model (hidden=16) fails with
+      `unflatten ... don't multiply up`, and its toy embedding vs real tokenizer
+      also overflows GPTQ calibration. Validate AWQ/GPTQ on a small *real* Llama
+      (`TinyLlama/TinyLlama-1.1B-Chat-v1.0`, ungated). tiny-random is fine for
+      export/TRT (graph structure) but not for quantization.
   - `notebooks/02_optimize.ipynb` wired: config → ONNX → engine → quantize.
 - [ ] Phase 4: Serving runtime + vLLM (`src/serving/`) ← current
 - [ ] Phase 5: Profiling wrapper (`src/profiling/`)
