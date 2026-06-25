@@ -159,6 +159,7 @@ class InferenceEngine:
         enabled explicitly. vLLM tokenizes internally, so no separate tokenizer is
         kept. Runs in its own environment (``requirements/gpu-serve.txt``).
         """
+        self._prepare_vllm_runtime()
         from vllm import LLM
 
         vllm_dtype = "float16" if self.dtype == "fp16" else "float32"
@@ -166,6 +167,45 @@ class InferenceEngine:
         logger.info(
             "vLLM backend ready (continuous batching + chunked prefill, dtype=%s).", vllm_dtype
         )
+
+    @staticmethod
+    def _prepare_vllm_runtime() -> None:
+        """Make vLLM importable + runnable on Colab-style CUDA-mismatched runtimes.
+
+        Three workarounds, all harmless on a correctly-configured box:
+
+        1. Force ``spawn`` for vLLM workers — CUDA cannot be re-initialized in a
+           forked child, and notebooks default to ``fork``.
+        2. Append the bundled NVIDIA runtime lib dirs (e.g. the cu13 wheels vLLM
+           pulls) to ``LD_LIBRARY_PATH`` so *spawned* child processes can load
+           ``libcudart`` etc.
+        3. Preload those libs into *this* process (``LD_LIBRARY_PATH`` can't help an
+           already-started process, so the parent's ``import vllm._C`` needs them
+           resident).
+        """
+        import ctypes
+        import glob
+        import os
+        import sysconfig
+
+        os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+
+        site = sysconfig.get_paths()["purelib"]
+        nvidia_libs = glob.glob(os.path.join(site, "nvidia", "**", "*.so*"), recursive=True)
+        if not nvidia_libs:
+            return
+
+        lib_dirs = sorted({os.path.dirname(p) for p in nvidia_libs})
+        existing = os.environ.get("LD_LIBRARY_PATH", "")
+        os.environ["LD_LIBRARY_PATH"] = ":".join(lib_dirs) + (f":{existing}" if existing else "")
+
+        # A few passes so inter-dependent libs resolve regardless of load order.
+        for _ in range(3):
+            for so in nvidia_libs:
+                try:
+                    ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass
 
     def _init_trt(self) -> None:
         """Load the TensorRT backend (deferred)."""

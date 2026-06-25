@@ -401,10 +401,10 @@ def calculate_mfu(
 
 ## Current project phase
 
-> **Phase 4 — Serving runtime + vLLM (`src/serving/`)** ← current
-> Unified `InferenceEngine`: `eager` (CPU+GPU), `onnx`, `vllm` implemented;
-> `trt` serving deferred (hand-rolled decode loop). GPU backends guarded by
-> `is_cuda_available()`. vLLM runs in its own env (`gpu-serve.txt`).
+> **Phase 5 — Profiling wrapper (`src/profiling/`)** ← current
+> PyTorch profiler + NVML power tracking (`pynvml`). Wraps `InferenceEngine`
+> runs to capture latency traces + power; feeds the Phase 6 benchmark sweep.
+> GPU-only paths guarded by `is_cuda_available()`.
 
 ### Phase status
 
@@ -452,17 +452,23 @@ def calculate_mfu(
       (`TinyLlama/TinyLlama-1.1B-Chat-v1.0`, ungated). tiny-random is fine for
       export/TRT (graph structure) but not for quantization.
   - `notebooks/02_optimize.ipynb` wired: config → ONNX → engine → quantize.
-- [~] **Phase 4 — Serving runtime + vLLM (`src/serving/`)** ← current *(eager validated on CPU; onnx/vllm implemented, Colab validation pending)*
+- [x] **Phase 4 — Serving runtime + vLLM (`src/serving/`)** *(done — eager/onnx/vllm validated; eager on CPU+CI, onnx/vllm on Colab)*
   - `InferenceEngine`: **eager** (HF `.generate`, CPU+GPU) — real CPU unit tests
     (generation, greedy determinism, batch, warmup), not just guard rails.
   - **onnx** via `ORTModelForCausalLM.generate` (shares the HF generate path,
-    consumes the Phase 2 export dir); **vllm** via `vllm.LLM` + `SamplingParams`
-    with continuous batching + chunked prefill. Both Colab-pending.
+    consumes the Phase 2 export dir) — validated on Colab.
+  - **vllm** via `vllm.LLM` + `SamplingParams`, continuous batching + chunked
+    prefill — validated on Colab (TinyLlama-1.1B, ~133 tok/s).
   - **trt** serving backend deferred — raw engine execution needs a hand-rolled
     autoregressive decode loop over the KV-cache bindings (separate follow-up).
+    Medusa speculative decoding also deferred.
   - vLLM isolated in `requirements/gpu-serve.txt` (own torch/transformers pin).
-  - Medusa speculative decoding deferred to a later mini-phase.
-- [ ] Phase 5: Profiling wrapper (`src/profiling/`)
+  - **Colab vLLM notes:** install via `uv pip install vllm --torch-backend=auto`
+    (plain `pip` pulls a cu13 wheel that won't load). `_prepare_vllm_runtime()`
+    self-heals the cu13-on-cu12 runtime: preloads the bundled `nvidia/cu*` libs,
+    adds them to `LD_LIBRARY_PATH` for spawned workers, and forces
+    `VLLM_WORKER_MULTIPROC_METHOD=spawn` (CUDA can't init in a forked child).
+- [ ] Phase 5: Profiling wrapper (`src/profiling/`) ← current
 - [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
 - [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
 

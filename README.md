@@ -68,7 +68,7 @@ configs/             model + benchmark sweep configs
 src/utils/           env detection, logging, config loaders   ✅ Phase 1 (done)
 src/export/          HuggingFace → ONNX (optimum, KV-cache)    ✅ Phase 2 (done, Colab-validated)
 src/optimization/    TensorRT engine build + quantization      ✅ Phase 3 (done, Colab-validated)
-src/serving/         unified InferenceEngine                   🚧 Phase 4 (eager done; onnx/vllm pending)
+src/serving/         unified InferenceEngine                   ✅ Phase 4 (eager/onnx/vllm validated)
 src/profiling/       PyTorch profiler + NVML power             ⏳ Phase 5
 src/benchmarking/    sweep runner + MFU                        ⏳ Phase 6 (MFU + result schema done)
 notebooks/           Colab GPU workflows (00–04)
@@ -89,11 +89,13 @@ tests/integration/   GPU-only, auto-skipped on CPU
   - `quantize_model`: **INT8** (bitsandbytes), **AWQ** (llmcompressor),
     **GPTQ** (gptqmodel); **FP8** gated to H100. INT8/FP8 TRT-engine precisions
     are deferred (need a calibrator / ONNX Q-DQ).
-- 🚧 **Phase 4 — Serving runtime.** `InferenceEngine` with a single `generate()`
-  contract over backends:
-  - **eager** (HF `.generate`, CPU+GPU) — ✅ implemented & unit-tested on CPU.
-  - **onnx** (optimum `ORTModelForCausalLM`) — implemented, Colab validation pending.
-  - **vllm** (continuous batching + chunked prefill) — implemented, Colab pending.
+- ✅ **Phase 4 — Serving runtime.** *Validated.* `InferenceEngine` with a single
+  `generate()` contract over backends:
+  - **eager** (HF `.generate`, CPU+GPU) — unit-tested on CPU (real generation).
+  - **onnx** (optimum `ORTModelForCausalLM`) — validated on Colab.
+  - **vllm** (continuous batching + chunked prefill) — validated on Colab
+    (TinyLlama-1.1B). Self-heals Colab's cu13-vLLM-on-cu12-torch runtime
+    (lib preload + `LD_LIBRARY_PATH` + spawn workers).
   - **trt** serving (hand-rolled decode loop) and **Medusa** speculative decoding
     are deferred to follow-ups.
 - ⏳ **Phase 5 — Profiling.** PyTorch profiler + NVML power wrapper.

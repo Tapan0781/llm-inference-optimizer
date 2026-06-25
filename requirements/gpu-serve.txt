@@ -16,5 +16,11 @@
 #   uv pip install --system vllm --torch-backend=auto   # detects torch's CUDA
 #
 # (`--torch-backend=auto` picks the vllm build matching the installed torch.)
+#
+# On Colab the matched wheel is often a CUDA-13 build on a CUDA-12 torch. That is
+# fine: `InferenceEngine._prepare_vllm_runtime()` self-heals it — it preloads the
+# bundled nvidia/cu* libs, puts them on LD_LIBRARY_PATH for spawned workers, and
+# forces VLLM_WORKER_MULTIPROC_METHOD=spawn (CUDA can't init in a forked child).
+# Validated on Colab T4: TinyLlama-1.1B, continuous batching + chunked prefill.
 
 vllm>=0.6
