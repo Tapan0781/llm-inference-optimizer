@@ -113,9 +113,10 @@ def run_sweep(
     warmup_iters = int(cfg.get("warmup_iters", 3))
     output_formats = cfg.get("output_format", ["csv", "json"])
 
-    # MFU inputs are constant across the grid — resolve once.
+    # MFU inputs + model context are constant across the grid — resolve once.
     metadata = _model_metadata(engine)
     gpu_tflops = _gpu_peak_tflops()
+    max_ctx = _max_context(engine)
     if metadata is None or gpu_tflops <= 0:
         logger.warning(
             "MFU unavailable (model metadata=%s, gpu_peak_tflops=%s); reporting -1.",
@@ -126,6 +127,18 @@ def run_sweep(
     results: list[BenchmarkResult] = []
     for batch_size in batch_sizes:
         for seq_len in seq_lens:
+            # Input + output must fit the model's context window. vLLM errors hard
+            # on overflow (eager only warns), so skip rather than crash the sweep.
+            if max_ctx is not None and seq_len + max_new_tokens > max_ctx:
+                logger.warning(
+                    "Skipping batch=%d seq_len=%d: seq_len + max_new_tokens (%d) "
+                    "exceeds model context %d.",
+                    batch_size,
+                    seq_len,
+                    seq_len + max_new_tokens,
+                    max_ctx,
+                )
+                continue
             prompts = _synth_prompts(batch_size, seq_len)
             profile = profile_generation(engine, prompts, max_new_tokens, warmup_iters)
             mfu = _mfu_percent(metadata, profile.throughput_tps, gpu_tflops)
@@ -170,8 +183,12 @@ def _synth_prompts(batch_size: int, seq_len: int) -> list[str]:
     Returns:
         A list of ``batch_size`` prompt strings.
     """
-    body = " ".join(["the"] * max(seq_len - 1, 1))
-    return [f"{i} {body}" for i in range(batch_size)]
+    prompts: list[str] = []
+    for i in range(batch_size):
+        words = ["the"] * max(seq_len, 1)
+        words[0] = str(i)  # keep prompts distinct without changing the length
+        prompts.append(" ".join(words))
+    return prompts
 
 
 def _metadata_from_cfg(cfg: dict) -> tuple[int, int, int] | None:
@@ -207,6 +224,39 @@ def _config_by_model_id(model_id: str) -> dict | None:
             continue
         if cfg.get("model_id") == model_id:
             return cfg
+    return None
+
+
+def _max_context(engine: InferenceEngine) -> int | None:
+    """Resolve the model's max context length, or ``None`` if unknown.
+
+    Prefers a project config's ``max_seq_len`` (by name/path or model_id); falls
+    back to the loaded model's ``max_position_embeddings``.
+
+    Args:
+        engine: The benchmarked engine.
+
+    Returns:
+        The max context length in tokens, or ``None``.
+    """
+    cfg: dict | None = None
+    try:
+        cfg = load_model_config(engine.model_path)
+    except (FileNotFoundError, ValueError):
+        cfg = _config_by_model_id(engine.model_path)
+    if cfg is not None and cfg.get("max_seq_len") is not None:
+        try:
+            return int(cfg["max_seq_len"])
+        except (TypeError, ValueError):
+            pass
+
+    model_cfg = getattr(getattr(engine, "_model", None), "config", None)
+    mpe = getattr(model_cfg, "max_position_embeddings", None)
+    if mpe is not None:
+        try:
+            return int(mpe)
+        except (TypeError, ValueError):
+            pass
     return None
 
 

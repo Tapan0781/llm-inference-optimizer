@@ -1,0 +1,11 @@
+model_id: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+architecture: "llama"
+num_parameters_b: 1.1
+dtype: "fp16"
+max_seq_len: 2048
+vocab_size: 32000
+num_layers: 22
+num_heads: 32
+hidden_dim: 2048
+tp_degree: 1
+hf_token_required: false   # ungated — the free-T4 benchmark model

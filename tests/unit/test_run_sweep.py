@@ -14,7 +14,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.benchmarking.benchmark_runner import BenchmarkResult, _model_metadata, run_sweep
+from src.benchmarking.benchmark_runner import (
+    BenchmarkResult,
+    _max_context,
+    _model_metadata,
+    run_sweep,
+)
 from src.serving.inference_engine import InferenceEngine
 from src.utils.env import is_cuda_available
 
@@ -35,6 +40,26 @@ def test_model_metadata_resolves_by_model_id() -> None:
     stub = SimpleNamespace(model_path="meta-llama/Meta-Llama-3-8B-Instruct", _model=None)
     meta = _model_metadata(stub)  # type: ignore[arg-type]
     assert meta == (8_000_000_000, 32, 4096)  # from configs/model_configs/llama3_8b.yaml
+
+
+def test_tinyllama_config_resolves_metadata_and_context() -> None:
+    # The benchmark model has a project config, so MFU + context resolve for any
+    # backend (incl. vLLM, which isn't introspectable).
+    stub = SimpleNamespace(model_path="TinyLlama/TinyLlama-1.1B-Chat-v1.0", _model=None)
+    assert _model_metadata(stub) == (1_100_000_000, 22, 2048)  # type: ignore[arg-type]
+    assert _max_context(stub) == 2048  # type: ignore[arg-type]
+
+
+def test_run_sweep_skips_oversized_seq(tmp_path: Path, eager_engine: InferenceEngine) -> None:
+    # seq_len + max_new_tokens beyond the model context must be skipped, not crash.
+    cfg = tmp_path / "big.yaml"
+    cfg.write_text(
+        "batch_sizes: [1]\nseq_lens: [8]\nmax_new_tokens: 100000000\nwarmup_iters: 1\n"
+        "output_format: [json]\n",
+        encoding="utf-8",
+    )
+    results = run_sweep(str(cfg), eager_engine, str(tmp_path / "r"))
+    assert results == []  # the single grid point is skipped (exceeds context)
 
 
 def _write_cfg(tmp_path: Path) -> Path:
