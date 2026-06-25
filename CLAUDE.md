@@ -415,17 +415,16 @@ def calculate_mfu(
   - `src/utils/config.py` loaders; tiny-model parity verified (max abs diff ~4e-8).
   - Ecosystem notes: optimum 2.x → install `optimum-onnx`; onnxruntime-gpu CUDA
     major must match torch's, else verification falls back to CPU ORT provider.
-- [x] **Phase 3 — TensorRT engine builder + quantization (`src/optimization/`)** *(validated on Colab: TRT 11.1 engine + AWQ (llmcompressor) + GPTQ (gptqmodel); int8 path not yet run on Colab)*
+- [x] **Phase 3 — TensorRT engine builder + quantization (`src/optimization/`)** *(done — fully validated on Colab: TRT 11.1 engine + INT8 + AWQ + GPTQ)*
   - `build_trt_engine`: **fp16/fp32 implemented + validated on Colab (TensorRT
     11.1)** — parses ONNX, builds a single optimization profile over
     batch/sequence/past-length (static KV dims read from the graph), serializes +
     deserialize-verifies the `.engine`. `int8` (entropy calibrator) and `fp8`
     (ONNX Q/DQ + H100) raise `NotImplementedError` *before* the GPU guard.
-  - `quantize_model`: **awq** via `llmcompressor` + **gptq** via `gptqmodel`
-    validated on Colab (TinyLlama-1.1B → ~762/767 MB 4-bit artifacts), in the
-    separate `gpu-quant.txt` env; **int8** via bitsandbytes (transformers-agnostic,
-    in the `gpu.txt` env — implemented, not yet run on Colab); **fp8** gated to
-    Hopper (SM 9.0+).
+  - `quantize_model`: all validated on Colab with TinyLlama-1.1B —
+    **awq** via `llmcompressor` (~762 MB) + **gptq** via `gptqmodel` (~767 MB) in
+    the separate `gpu-quant.txt` env; **int8** via bitsandbytes (~1.2 GB) in the
+    `gpu.txt` env; **fp8** gated to Hopper (SM 9.0+).
   - mypy overrides added: `llmcompressor.*`, `gptqmodel.*`, `bitsandbytes.*`,
     `datasets.*`, `transformer_engine.*`.
   - **Colab/TensorRT 11 ecosystem notes (hard-won):**
