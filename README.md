@@ -20,6 +20,8 @@ It takes a large language model (LLM — the AI behind chatbots) and runs it thr
 **export → optimize (TensorRT + quantization) → serve (eager / ONNX / vLLM) →
 profile → benchmark → analyze.**
 
+![Pipeline architecture](docs/architecture.png)
+
 ### Key concepts (60-second glossary)
 
 | Term | Plain-English meaning |
@@ -208,6 +210,7 @@ These surfaced during real Colab runs and are baked into the code & requirements
 | Read the code, one stage per folder | [`src/`](src/) (`export`, `optimization`, `serving`, `profiling`, `benchmarking`) |
 | See how the GPU runs were driven | [`notebooks/`](notebooks/) (00 setup → 04 analysis) |
 | Reproduce the tests | `make test` (CPU-safe unit tests) |
+| See the architecture at a glance | [`docs/architecture.png`](docs/architecture.png) |
 | Read the full build log + design decisions | [`CLAUDE.md`](CLAUDE.md) |
 
 ## More
