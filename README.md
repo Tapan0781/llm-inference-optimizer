@@ -5,18 +5,36 @@ framework, targeting **LLaMA 3 (8B / 70B)**.
 
 **Stack:** PyTorch 2.3 · CUDA · TensorRT · ONNX · vLLM · Nsight
 
-> 📄 **New here / non-technical?** Read [`docs/PROJECT_OVERVIEW.pdf`](docs/PROJECT_OVERVIEW.pdf)
-> (or [the Markdown version](docs/PROJECT_OVERVIEW.md)) — a plain-English explainer of what
-> this project does, what it achieved, and how, with no jargon.
+> 📄 **New here / student / non-technical?** Start with
+> [`docs/PROJECT_OVERVIEW.pdf`](docs/PROJECT_OVERVIEW.pdf) (or
+> [the Markdown version](docs/PROJECT_OVERVIEW.md)) — an elaborate, beginner-friendly
+> walkthrough that explains every concept and term from scratch. This README is the
+> technical companion.
 
 ## What this project does
 
-It takes a large language model and runs it through a **6-stage pipeline** to make
-it faster and cheaper to serve on a GPU — then **measures** the result precisely so
-the speed-ups are proven, not claimed:
+It takes a large language model (LLM — the AI behind chatbots) and runs it through a
+**6-stage pipeline** to make it faster and cheaper to serve on a GPU — then
+**measures** the result precisely so the speed-ups are proven, not claimed:
 
 **export → optimize (TensorRT + quantization) → serve (eager / ONNX / vLLM) →
 profile → benchmark → analyze.**
+
+### Key concepts (60-second glossary)
+
+| Term | Plain-English meaning |
+|---|---|
+| **Inference** | *Running* a trained model to get answers (vs. *training* it). |
+| **Token** | A chunk of text (~a word) the model reads/writes. |
+| **GPU** | The chip that does the model's math; the costly, scarce resource. |
+| **Latency** | How long you wait — **TTFT** (to first word) + **TPOT** (per later word). Lower = better. |
+| **Throughput** | Tokens/second served. Higher = better (serves more users). |
+| **Batching** | Handling many requests together — like a bus vs. single taxis. |
+| **Quantization** | Shrinking the model (e.g. 4-bit) for speed/size, ~same quality. |
+| **Baseline** | The plain reference setup to beat — here, PyTorch "eager". |
+| **MFU** | Model FLOP Utilization — % of the GPU's peak compute actually used. |
+
+*Full explanations with analogies are in the [PDF overview](docs/PROJECT_OVERVIEW.pdf).*
 
 ## What was achieved
 
@@ -181,7 +199,19 @@ These surfaced during real Colab runs and are baked into the code & requirements
   (`group_size=128`) requires weight dims divisible by 128. Validation uses
   `TinyLlama-1.1B`; `tiny-random` is only for export/TRT graph structure.
 
+## Repo tour — where to look
+
+| If you want to… | Look at |
+|---|---|
+| Understand the project with zero background | [`docs/PROJECT_OVERVIEW.pdf`](docs/PROJECT_OVERVIEW.pdf) |
+| See the measured results + chart | this README's [What was achieved](#what-was-achieved) · [`docs/benchmarks/`](docs/benchmarks/) |
+| Read the code, one stage per folder | [`src/`](src/) (`export`, `optimization`, `serving`, `profiling`, `benchmarking`) |
+| See how the GPU runs were driven | [`notebooks/`](notebooks/) (00 setup → 04 analysis) |
+| Reproduce the tests | `make test` (CPU-safe unit tests) |
+| Read the full build log + design decisions | [`CLAUDE.md`](CLAUDE.md) |
+
 ## More
 
 See **`CLAUDE.md`** for full module contracts, config schemas, coding standards, and
-the detailed phase log.
+the detailed phase log. The [`docs/PROJECT_OVERVIEW.pdf`](docs/PROJECT_OVERVIEW.pdf) is
+regenerated (with the Markdown mirror) by `python scripts/make_overview_pdf.py`.
