@@ -427,11 +427,11 @@ def calculate_mfu(
 
 ## Current project phase
 
-> **Phase 6 — Benchmarking sweep (`src/benchmarking/`)** ← current
-> `run_sweep`: drive `InferenceEngine` across the config grid (batch × seq ×
-> dtype × backend), call `profile_generation`, compute MFU via `calculate_mfu`,
-> and write `BenchmarkResult` rows to CSV + JSON. `calculate_mfu` +
-> `BenchmarkResult` already exist (Phase 1, CPU-safe).
+> **Phase 7 — Nsight integration** ← current
+> `nsys`/`ncu` profiling of the inference path. **Requires bare-metal GPU**
+> (Lambda Labs / RunPod) — Colab does not expose Nsight. Phases 1–6 are
+> complete and validated; this is the only remaining phase and is blocked on
+> bare-metal access.
 
 ### Phase status
 
@@ -504,7 +504,7 @@ def calculate_mfu(
   - Colab T4 validation (TinyLlama-1.1B): TTFT 90.8ms, TPOT 26.9ms, 69 tok/s,
     mem 2.21GB (matches fp16 weights), power 45.2W mean / 53.2W peak.
   - torch.profiler op-level trace capture (`save_traces`) deferred to a follow-up.
-- [~] **Phase 6 — Benchmarking sweep (`src/benchmarking/`)** ← current *(core validated on CPU; GPU sweep Colab-pending)*
+- [x] **Phase 6 — Benchmarking sweep (`src/benchmarking/`)** *(done — validated on Colab T4)*
   - `run_sweep(config_path, engine, output_dir)`: sweeps the batch_size × seq_len
     grid for one engine (the engine fixes backend/dtype/model), profiles each via
     `profile_generation`, computes MFU (`load_model_config` or model-config
@@ -513,7 +513,9 @@ def calculate_mfu(
   - CPU-runnable with eager → real unit tests (grid, schema, CSV/JSON written;
     MFU/power/mem sentinels off-GPU). `default_sweep.yaml` reconciled to
     implemented backends (`eager`/`onnx`/`vllm`, `fp16`) + `max_new_tokens`.
-  - Pending: GPU sweep validation + `03_benchmark.ipynb` backend loop.
+  - Colab T4 validation (TinyLlama-1.1B): real MFU% (T4=65 TFLOPs), power, mem;
+    throughput scales with batch (bs1→bs4 ≈3.4×). `03_benchmark.ipynb` loops
+    eager/onnx (main env) + vllm (separate env) for cross-backend comparison.
 - [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
 
 ### Cross-cutting conventions established in Phase 1

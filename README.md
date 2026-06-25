@@ -70,7 +70,7 @@ src/export/          HuggingFace → ONNX (optimum, KV-cache)    ✅ Phase 2 (do
 src/optimization/    TensorRT engine build + quantization      ✅ Phase 3 (done, Colab-validated)
 src/serving/         unified InferenceEngine                   ✅ Phase 4 (eager/onnx/vllm validated)
 src/profiling/       PyTorch profiler + NVML power             ✅ Phase 5 (validated on Colab)
-src/benchmarking/    sweep runner + MFU                        🚧 Phase 6 (MFU + result schema done)
+src/benchmarking/    sweep runner + MFU                        ✅ Phase 6 (validated on Colab)
 notebooks/           Colab GPU workflows (00–04)
 tests/unit/          CPU-safe, run in CI
 tests/integration/   GPU-only, auto-skipped on CPU
@@ -102,9 +102,12 @@ tests/integration/   GPU-only, auto-skipped on CPU
   (black-box over any backend): TTFT, TPOT, throughput, peak CUDA memory, and
   mean/peak NVML power (background sampler). CPU-runnable for timing; GPU metrics
   degrade to sentinels off-GPU. torch.profiler op-level traces deferred.
-- 🚧 **Phase 6 — Benchmarking.** Full sweep (`run_sweep`): drives the engine
-  across the config grid, profiles each, computes MFU → CSV/JSON.
-- ⏳ **Phase 7 — Nsight.** Requires bare-metal GPU (Lambda Labs / RunPod).
+- ✅ **Phase 6 — Benchmarking.** *Validated on Colab T4.* `run_sweep` drives the
+  engine across the batch × seq grid, profiles each point, computes real MFU%
+  (GPU peak TFLOPs × measured throughput) → CSV/JSON. `03_benchmark.ipynb` loops
+  backends for the eager-vs-onnx-vs-vllm comparison.
+- ⏳ **Phase 7 — Nsight.** `nsys`/`ncu` profiling — requires bare-metal GPU
+  (Lambda Labs / RunPod); not available on Colab.
 
 ## Engineering notes (hard-won, GPU-validated)
 
