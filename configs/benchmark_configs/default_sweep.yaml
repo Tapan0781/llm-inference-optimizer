@@ -1,7 +1,8 @@
 batch_sizes: [1, 4, 8, 16, 32]
 seq_lens: [128, 512, 1024, 2048]
-dtypes: ["fp16", "int8"]
-backends: ["eager", "trt"]
+dtypes: ["fp16"]
+backends: ["eager", "onnx", "vllm"]   # implemented serving backends (trt serving deferred)
+max_new_tokens: 128                    # output length for TPOT/throughput
 warmup_iters: 5
 benchmark_iters: 50
 save_traces: false

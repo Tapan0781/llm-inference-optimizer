@@ -504,7 +504,16 @@ def calculate_mfu(
   - Colab T4 validation (TinyLlama-1.1B): TTFT 90.8ms, TPOT 26.9ms, 69 tok/s,
     mem 2.21GB (matches fp16 weights), power 45.2W mean / 53.2W peak.
   - torch.profiler op-level trace capture (`save_traces`) deferred to a follow-up.
-- [ ] Phase 6: Benchmarking sweep framework (`src/benchmarking/`)
+- [~] **Phase 6 — Benchmarking sweep (`src/benchmarking/`)** ← current *(core validated on CPU; GPU sweep Colab-pending)*
+  - `run_sweep(config_path, engine, output_dir)`: sweeps the batch_size × seq_len
+    grid for one engine (the engine fixes backend/dtype/model), profiles each via
+    `profile_generation`, computes MFU (`load_model_config` or model-config
+    introspection × `get_gpu_name()` → peak TFLOPs), writes
+    `benchmark_<backend>_<dtype>.{csv,json}`. Cross-backend = call once per engine.
+  - CPU-runnable with eager → real unit tests (grid, schema, CSV/JSON written;
+    MFU/power/mem sentinels off-GPU). `default_sweep.yaml` reconciled to
+    implemented backends (`eager`/`onnx`/`vllm`, `fp16`) + `max_new_tokens`.
+  - Pending: GPU sweep validation + `03_benchmark.ipynb` backend loop.
 - [ ] Phase 7: Nsight integration (requires bare-metal GPU — Lambda Labs / RunPod)
 
 ### Cross-cutting conventions established in Phase 1

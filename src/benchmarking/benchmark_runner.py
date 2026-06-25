@@ -6,12 +6,27 @@ fully implemented here. The :func:`run_sweep` driver is implemented in Phase 6.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import csv
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
+from src.profiling.profiler import profile_generation
 from src.serving.inference_engine import InferenceEngine
+from src.utils.config import load_benchmark_config, load_model_config
+from src.utils.env import get_gpu_name
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# GPU peak dense TFLOPs by model (for MFU). Matched against get_gpu_name().
+_GPU_PEAK_TFLOPS: dict[str, float] = {
+    "H100": 989.0,
+    "A100": 312.0,
+    "L4": 121.0,
+    "V100": 125.0,
+    "T4": 65.0,
+}
 
 
 @dataclass
@@ -76,17 +91,178 @@ def run_sweep(
     engine: InferenceEngine,
     output_dir: str = "results/",
 ) -> list[BenchmarkResult]:
-    """Run a full benchmark sweep defined by a config file.
+    """Run a benchmark sweep over the batch_size × seq_len grid for one engine.
+
+    The ``engine`` fixes the ``(backend, dtype, model)``; this sweeps the grid from
+    the config and profiles each point. To compare backends, call ``run_sweep`` once
+    per engine (the benchmark notebook loops over them). Results are written to
+    ``output_dir`` as ``benchmark_<backend>_<dtype>.{csv,json}`` per ``output_format``.
 
     Args:
-        config_path: Path to a benchmark sweep YAML config.
+        config_path: Benchmark sweep config (name or path).
         engine: The inference engine to benchmark.
-        output_dir: Directory where CSV and JSON results are written.
+        output_dir: Directory where CSV/JSON results are written.
 
     Returns:
-        A list of :class:`BenchmarkResult` for every sweep point.
-
-    Raises:
-        NotImplementedError: Pending Phase 6 implementation.
+        A list of :class:`BenchmarkResult`, one per grid point.
     """
-    raise NotImplementedError("run_sweep is implemented in Phase 6.")
+    cfg = load_benchmark_config(config_path)
+    batch_sizes = cfg["batch_sizes"]
+    seq_lens = cfg["seq_lens"]
+    max_new_tokens = int(cfg.get("max_new_tokens", 128))
+    warmup_iters = int(cfg.get("warmup_iters", 3))
+    output_formats = cfg.get("output_format", ["csv", "json"])
+
+    # MFU inputs are constant across the grid — resolve once.
+    metadata = _model_metadata(engine)
+    gpu_tflops = _gpu_peak_tflops()
+    if metadata is None or gpu_tflops <= 0:
+        logger.warning(
+            "MFU unavailable (model metadata=%s, gpu_peak_tflops=%s); reporting -1.",
+            metadata is not None,
+            gpu_tflops,
+        )
+
+    results: list[BenchmarkResult] = []
+    for batch_size in batch_sizes:
+        for seq_len in seq_lens:
+            prompts = _synth_prompts(batch_size, seq_len)
+            profile = profile_generation(engine, prompts, max_new_tokens, warmup_iters)
+            mfu = _mfu_percent(metadata, profile.throughput_tps, gpu_tflops)
+            results.append(
+                BenchmarkResult(
+                    model=engine.model_path,
+                    backend=engine.backend,
+                    dtype=engine.dtype,
+                    batch_size=batch_size,
+                    seq_len=seq_len,
+                    ttft_ms=profile.ttft_ms,
+                    tpot_ms=profile.tpot_ms,
+                    throughput_tps=profile.throughput_tps,
+                    mfu_percent=mfu,
+                    gpu_mem_gb=profile.gpu_mem_gb,
+                    power_watts=profile.power_watts,
+                )
+            )
+            logger.info(
+                "Swept batch=%d seq_len=%d: %.1f tok/s, MFU=%.1f%%",
+                batch_size,
+                seq_len,
+                profile.throughput_tps,
+                mfu,
+            )
+
+    _write_results(results, engine, Path(output_dir), output_formats)
+    return results
+
+
+def _synth_prompts(batch_size: int, seq_len: int) -> list[str]:
+    """Build ``batch_size`` prompts of approximately ``seq_len`` tokens.
+
+    Uses a repeated common token; a leading index keeps prompts distinct so caches
+    (e.g. vLLM prefix caching) don't skew per-request timing. Length is approximate
+    (whitespace-token heuristic), which is fine for relative benchmarking.
+
+    Args:
+        batch_size: Number of prompts.
+        seq_len: Target token length per prompt.
+
+    Returns:
+        A list of ``batch_size`` prompt strings.
+    """
+    body = " ".join(["the"] * max(seq_len - 1, 1))
+    return [f"{i} {body}" for i in range(batch_size)]
+
+
+def _model_metadata(engine: InferenceEngine) -> tuple[int, int, int] | None:
+    """Resolve ``(params, num_layers, hidden_dim)`` for MFU, or ``None`` if unknown.
+
+    Prefers a project model config (``configs/model_configs/``); falls back to
+    introspecting the loaded model's HF config.
+
+    Args:
+        engine: The benchmarked engine.
+
+    Returns:
+        ``(params, num_layers, hidden_dim)`` or ``None``.
+    """
+    try:
+        cfg = load_model_config(engine.model_path)
+        return int(cfg["num_parameters_b"] * 1e9), int(cfg["num_layers"]), int(cfg["hidden_dim"])
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
+        pass
+
+    model = getattr(engine, "_model", None)
+    if model is None:
+        return None
+    model_cfg = getattr(model, "config", None)
+    if model_cfg is None:
+        return None
+    layers = getattr(model_cfg, "num_hidden_layers", None)
+    hidden = getattr(model_cfg, "hidden_size", None)
+    params: int | None = None
+    try:
+        if hasattr(model, "num_parameters"):
+            params = int(model.num_parameters())
+        elif hasattr(model, "parameters"):
+            params = int(sum(p.numel() for p in model.parameters()))
+    except Exception as exc:  # noqa: BLE001 -- introspection varies by backend
+        logger.warning("Could not count model parameters: %s", exc)
+    if params is None or layers is None or hidden is None:
+        return None
+    return params, int(layers), int(hidden)
+
+
+def _gpu_peak_tflops() -> float:
+    """Return the current GPU's peak TFLOPs for MFU, or ``-1.0`` if unknown/CPU."""
+    name = get_gpu_name()
+    for key, tflops in _GPU_PEAK_TFLOPS.items():
+        if key in name:
+            return tflops
+    return -1.0
+
+
+def _mfu_percent(
+    metadata: tuple[int, int, int] | None, tokens_per_second: float, gpu_tflops: float
+) -> float:
+    """Compute MFU% from resolved metadata, or ``-1.0`` if inputs are unavailable."""
+    if metadata is None or gpu_tflops <= 0 or tokens_per_second <= 0:
+        return -1.0
+    params, num_layers, hidden_dim = metadata
+    return calculate_mfu(params, tokens_per_second, gpu_tflops, num_layers, hidden_dim)
+
+
+def _write_results(
+    results: list[BenchmarkResult],
+    engine: InferenceEngine,
+    output_dir: Path,
+    output_formats: list[str],
+) -> None:
+    """Write sweep results to ``output_dir`` as CSV and/or JSON.
+
+    Filenames are tagged with backend + dtype so per-engine sweeps don't overwrite
+    each other when looping backends.
+
+    Args:
+        results: The sweep results.
+        engine: The benchmarked engine (provides the filename tag).
+        output_dir: Destination directory (created if needed).
+        output_formats: Subset of ``{"csv", "json"}``.
+    """
+    if not results:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"benchmark_{engine.backend}_{engine.dtype}"
+    rows = [asdict(r) for r in results]
+
+    if "json" in output_formats:
+        path = output_dir / f"{stem}.json"
+        path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        logger.info("Wrote %s", path)
+    if "csv" in output_formats:
+        path = output_dir / f"{stem}.csv"
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        logger.info("Wrote %s", path)
