@@ -174,6 +174,42 @@ def _synth_prompts(batch_size: int, seq_len: int) -> list[str]:
     return [f"{i} {body}" for i in range(batch_size)]
 
 
+def _metadata_from_cfg(cfg: dict) -> tuple[int, int, int] | None:
+    """Extract ``(params, num_layers, hidden_dim)`` from a model config mapping."""
+    try:
+        return (
+            int(cfg["num_parameters_b"] * 1e9),
+            int(cfg["num_layers"]),
+            int(cfg["hidden_dim"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _config_by_model_id(model_id: str) -> dict | None:
+    """Find a model config in ``configs/model_configs/`` whose ``model_id`` matches.
+
+    Lets an HF id (the engine's ``model_path``) resolve to its project config so
+    MFU works for any backend (e.g. vLLM, where the model isn't introspectable).
+
+    Args:
+        model_id: The HF model id to match against each config's ``model_id``.
+
+    Returns:
+        The matching config mapping, or ``None``.
+    """
+    from src.utils.config import MODEL_CONFIG_DIR
+
+    for path in sorted(MODEL_CONFIG_DIR.glob("*.y*ml")):
+        try:
+            cfg = load_model_config(path.stem)
+        except (FileNotFoundError, ValueError):
+            continue
+        if cfg.get("model_id") == model_id:
+            return cfg
+    return None
+
+
 def _model_metadata(engine: InferenceEngine) -> tuple[int, int, int] | None:
     """Resolve ``(params, num_layers, hidden_dim)`` for MFU, or ``None`` if unknown.
 
@@ -186,12 +222,21 @@ def _model_metadata(engine: InferenceEngine) -> tuple[int, int, int] | None:
     Returns:
         ``(params, num_layers, hidden_dim)`` or ``None``.
     """
+    # 1) A project model config — matched by name/path, or by its model_id (so an
+    #    HF id like "meta-llama/Meta-Llama-3-8B-Instruct" resolves too). This path
+    #    works for every backend, including vLLM where the model isn't a torch
+    #    module we can introspect.
+    cfg: dict | None = None
     try:
         cfg = load_model_config(engine.model_path)
-        return int(cfg["num_parameters_b"] * 1e9), int(cfg["num_layers"]), int(cfg["hidden_dim"])
-    except (FileNotFoundError, ValueError, KeyError, TypeError):
-        pass
+    except (FileNotFoundError, ValueError):
+        cfg = _config_by_model_id(engine.model_path)
+    if cfg is not None:
+        meta = _metadata_from_cfg(cfg)
+        if meta is not None:
+            return meta
 
+    # 2) Fall back to introspecting the loaded model (eager/onnx).
     model = getattr(engine, "_model", None)
     if model is None:
         return None

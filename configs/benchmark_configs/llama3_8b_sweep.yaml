@@ -1,0 +1,13 @@
+# Benchmark sweep tuned for LLaMA 3 8B (fp16) on a single A100 (40GB).
+# fp16 weights ~16GB; the rest is KV cache + activations. Start conservative —
+# scale batch/seq up on an 80GB A100 or if you have headroom. eager may OOM at the
+# largest batch×seq before vLLM does (vLLM paged KV cache is far more memory-frugal).
+batch_sizes: [1, 4, 8, 16]
+seq_lens: [128, 512, 1024, 2048]
+dtypes: ["fp16"]
+backends: ["eager", "vllm"]   # the headline comparison
+max_new_tokens: 128
+warmup_iters: 3
+benchmark_iters: 20
+save_traces: false
+output_format: ["csv", "json"]

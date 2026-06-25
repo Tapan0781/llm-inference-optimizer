@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from src.benchmarking.benchmark_runner import BenchmarkResult, run_sweep
+from src.benchmarking.benchmark_runner import BenchmarkResult, _model_metadata, run_sweep
 from src.serving.inference_engine import InferenceEngine
 from src.utils.env import is_cuda_available
 
@@ -26,6 +27,14 @@ def eager_engine() -> InferenceEngine:
         return InferenceEngine(_TINY, backend="eager", device="cpu")
     except OSError as exc:  # offline — not a code bug
         pytest.skip(f"tiny model unavailable (offline?): {exc}")
+
+
+def test_model_metadata_resolves_by_model_id() -> None:
+    # An HF model id (the engine's model_path) should resolve to its project
+    # config via model_id matching — no loaded model needed (works for vLLM).
+    stub = SimpleNamespace(model_path="meta-llama/Meta-Llama-3-8B-Instruct", _model=None)
+    meta = _model_metadata(stub)  # type: ignore[arg-type]
+    assert meta == (8_000_000_000, 32, 4096)  # from configs/model_configs/llama3_8b.yaml
 
 
 def _write_cfg(tmp_path: Path) -> Path:
