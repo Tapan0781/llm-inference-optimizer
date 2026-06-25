@@ -5,7 +5,43 @@ framework, targeting **LLaMA 3 (8B / 70B)**.
 
 **Stack:** PyTorch 2.3 · CUDA · TensorRT · ONNX · vLLM · Nsight
 
-## Goals
+> 📄 **New here / non-technical?** Read [`docs/PROJECT_OVERVIEW.pdf`](docs/PROJECT_OVERVIEW.pdf)
+> (or [the Markdown version](docs/PROJECT_OVERVIEW.md)) — a plain-English explainer of what
+> this project does, what it achieved, and how, with no jargon.
+
+## What this project does
+
+It takes a large language model and runs it through a **6-stage pipeline** to make
+it faster and cheaper to serve on a GPU — then **measures** the result precisely so
+the speed-ups are proven, not claimed:
+
+**export → optimize (TensorRT + quantization) → serve (eager / ONNX / vLLM) →
+profile → benchmark → analyze.**
+
+## What was achieved
+
+The full pipeline is **built and validated end-to-end on a real GPU** (free Colab T4).
+Measured highlights (TinyLlama-1.1B on a T4 — same hardware/model across backends):
+
+| Result | Measurement |
+|---|---|
+| **vLLM vs eager throughput** | **~2.3× higher** (66 vs 28 tok/s, batch 1) |
+| **vLLM vs eager per-token latency** | **~57% lower** (TPOT 14.9 ms vs 35 ms) |
+| **Batching gain (eager)** | **~24× throughput** (28 → 686 tok/s, batch 1 → 32) |
+| **Quantization** | model **~3× smaller** (2.2 GB → ~0.76 GB, AWQ/GPTQ 4-bit) |
+| **Power / memory** | captured live via NVML (~45–67 W under load) |
+
+*These come from a small model on free hardware; the same pipeline scales to LLaMA 3
+8B on an A100 (config + notebook tier included), where the absolute gains are larger.*
+
+### How it was built (and what it took)
+Each phase was implemented, **unit-tested on CPU**, then **validated on GPU** before being
+marked done. The hard part was making it run on real machines — the
+[Engineering notes](#engineering-notes-hard-won-gpu-validated) below capture the
+TensorRT-11 API rewrite, the three-way dependency-environment split, and the
+multi-layer fix that got vLLM self-healing on Colab. Full phase log in `CLAUDE.md`.
+
+## Original goals (targets)
 
 - 45% latency reduction vs baseline PyTorch eager
 - 2.3× throughput improvement

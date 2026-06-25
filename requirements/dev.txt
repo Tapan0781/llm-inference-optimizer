@@ -6,3 +6,4 @@ pytest>=8.2
 ipykernel>=6.29
 pre-commit>=3.7
 types-PyYAML>=6.0
+fpdf2>=2.8          # generates docs/PROJECT_OVERVIEW.pdf via scripts/make_overview_pdf.py
