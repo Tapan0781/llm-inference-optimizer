@@ -1,0 +1,26 @@
+# GPU dependencies — AWQ / GPTQ QUANTIZATION stage ONLY.
+# Install in a SEPARATE environment / Colab session from requirements/gpu.txt.
+#
+# Why separate: the maintained AWQ/GPTQ backends below require transformers 5.x,
+# while the export/TensorRT stack (optimum-onnx) requires transformers <5.0. The
+# two cannot coexist in one Python environment. Quantization is a distinct pipeline
+# stage anyway — it produces a checkpoint on disk that the export stage then
+# consumes — so running it in its own kernel is the correct structure, not a
+# workaround.
+#
+# Backends (the originally-planned autoawq/auto-gptq are deprecated and broken
+# against current transformers):
+#   AWQ  -> llmcompressor (vLLM project's successor to AutoAWQ)
+#   GPTQ -> gptqmodel (maintained successor to auto-gptq)
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch>=2.4
+# Intersection of llmcompressor (>=5.9,<=5.10.1) and gptqmodel (>=5.4) constraints.
+transformers>=5.9,<5.11
+llmcompressor>=0.12
+gptqmodel>=7.1
+datasets>=2.19
+accelerate>=0.30
+numpy>=1.26
+pyyaml>=6.0

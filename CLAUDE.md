@@ -32,8 +32,13 @@ This project runs in TWO environments. Every decision must respect both.
 ### Google Colab (GPU execution)
 - Used for: ONNX export, TRT engine build, quantization, benchmarking
 - GPU: T4 (free) or A100 (Pro/Pro+)
-- Install from `requirements/gpu.txt`
 - Entry point: `notebooks/00_colab_setup.ipynb`
+- **The GPU stack is split across TWO environments** (they need incompatible
+  transformers majors and are separate pipeline stages chained by on-disk
+  checkpoints — do not try to install both in one kernel):
+  - `requirements/gpu.txt` — export / TensorRT / INT8 / serving (transformers <5.0)
+  - `requirements/gpu-quant.txt` — AWQ + GPTQ only (transformers 5.x, via
+    `llmcompressor` + `gptqmodel`)
 
 ### Rule: every GPU code path must guard itself
 
@@ -363,7 +368,8 @@ These are the additions that differentiate this project. Implement them in this 
 |---|---|---|
 | FP8 quantization | `src/optimization/quantization.py` | H100 only via Transformer Engine |
 | Flash Attention v2 | `src/optimization/trt_builder.py` | use `flash-attn` package |
-| AWQ quantization | `src/optimization/quantization.py` | via `autoawq` package |
+| AWQ quantization | `src/optimization/quantization.py` | via `llmcompressor` (autoawq is deprecated/broken) |
+| GPTQ quantization | `src/optimization/quantization.py` | via `gptqmodel` (auto-gptq fails to build) |
 | Speculative decoding (Medusa) | `src/serving/inference_engine.py` | via `medusa-llm` |
 | Continuous batching | `src/serving/inference_engine.py` | via vLLM backend |
 | Chunked prefill | `src/serving/inference_engine.py` | vLLM ≥ 0.4 |
@@ -409,17 +415,32 @@ def calculate_mfu(
   - `src/utils/config.py` loaders; tiny-model parity verified (max abs diff ~4e-8).
   - Ecosystem notes: optimum 2.x → install `optimum-onnx`; onnxruntime-gpu CUDA
     major must match torch's, else verification falls back to CPU ORT provider.
-- [x] **Phase 3 — TensorRT engine builder + quantization (`src/optimization/`)** *(done — CPU guard rails green; GPU paths to validate on Colab)*
-  - `build_trt_engine`: **fp16/fp32 implemented** — parses ONNX, builds a single
-    optimization profile over batch/sequence/past-length (static KV dims read
-    from the graph), serializes + deserialize-verifies the `.engine`. `int8`
-    (needs entropy calibrator) and `fp8` (needs ONNX Q/DQ + H100) raise
-    `NotImplementedError` *before* the GPU guard, so they're unit-testable.
-  - `quantize_model`: **awq / gptq / int8 implemented** (autoawq, transformers
-    `GPTQConfig`, bitsandbytes); `fp8` is gated to Hopper (SM 9.0+) and otherwise
-    raises — not runnable on Colab T4/A100.
-  - New deps in `requirements/gpu.txt`: `auto-gptq`, `bitsandbytes`. New mypy
-    overrides: `awq.*`, `auto_gptq.*`, `bitsandbytes.*`, `transformer_engine.*`.
+- [x] **Phase 3 — TensorRT engine builder + quantization (`src/optimization/`)** *(TRT path validated on Colab TRT 11.1; INT8 + AWQ/GPTQ validation in progress)*
+  - `build_trt_engine`: **fp16/fp32 implemented + validated on Colab (TensorRT
+    11.1)** — parses ONNX, builds a single optimization profile over
+    batch/sequence/past-length (static KV dims read from the graph), serializes +
+    deserialize-verifies the `.engine`. `int8` (entropy calibrator) and `fp8`
+    (ONNX Q/DQ + H100) raise `NotImplementedError` *before* the GPU guard.
+  - `quantize_model`: **int8** via bitsandbytes (transformers-agnostic, in the
+    `gpu.txt` env); **awq** via `llmcompressor`, **gptq** via `gptqmodel` (in the
+    separate `gpu-quant.txt` env); **fp8** gated to Hopper (SM 9.0+).
+  - mypy overrides added: `llmcompressor.*`, `gptqmodel.*`, `bitsandbytes.*`,
+    `datasets.*`, `transformer_engine.*`.
+  - **Colab/TensorRT 11 ecosystem notes (hard-won):**
+    - Install **`tensorrt-cu12`**, never bare `tensorrt` (resolves to a cu13 build
+      → `libcudart.so.13` mismatch on Colab's CUDA 12). Same trap as
+      `onnxruntime-gpu` — use **CPU `onnxruntime`** for export (parity check is
+      correctness-only).
+    - **TensorRT 11 removed** `NetworkDefinitionCreationFlag.EXPLICIT_BATCH`,
+      `builder.platform_has_fast_fp16`, and the precision `BuilderFlag`s
+      (`FP16`/`INT8`/`FP8`). Precision now comes from the ONNX tensor types via a
+      **`STRONGLY_TYPED`** network. `trt_builder.py` detects the regime
+      (`BuilderFlag.FP16` absent) and adapts; on TRT 11 the engine follows the
+      export dtype, so build at the same dtype the ONNX was exported with.
+    - **autoawq and auto-gptq are dead** (autoawq import-breaks on current
+      transformers; auto-gptq won't build). Replaced by `llmcompressor`/`gptqmodel`,
+      which require **transformers 5.x** — hence the two-env split (`gpu.txt` vs
+      `gpu-quant.txt`); AWQ/GPTQ run in their own Colab session.
   - `notebooks/02_optimize.ipynb` wired: config → ONNX → engine → quantize.
 - [ ] Phase 4: Serving runtime + vLLM (`src/serving/`) ← current
 - [ ] Phase 5: Profiling wrapper (`src/profiling/`)

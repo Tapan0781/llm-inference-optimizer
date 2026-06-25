@@ -1,16 +1,28 @@
-# GPU dependencies — install ONLY on CUDA-enabled machines (Colab / Lambda / RunPod).
-# Do NOT install on Mac. CUDA 12.1 build of torch.
+# GPU dependencies — EXPORT / TENSORRT / INT8 / SERVING stage.
+# Install ONLY on CUDA-enabled machines (Colab / Lambda / RunPod). Do NOT install
+# on Mac. This stack is pinned to transformers <5.0 (the version optimum-onnx /
+# the ONNX export expects).
+#
+# NOTE: AWQ/GPTQ quantization lives in a SEPARATE environment — see
+# requirements/gpu-quant.txt. Those backends (llmcompressor / gptqmodel) require
+# transformers 5.x, which is incompatible with this export stack, so they must run
+# in their own Colab session. The two stages chain via saved checkpoints on disk.
+
 --extra-index-url https://download.pytorch.org/whl/cu121
 
 torch==2.3.0+cu121
 transformers>=4.40,<5.0
 onnx>=1.16
-# onnxruntime-gpu wheels are built against a specific CUDA major version — it
-# MUST match your torch CUDA build (e.g. cu12). If it mismatches (libcudart.so.NN
-# load error), install the matching ORT build or fall back to CPU `onnxruntime`
-# for export verification (the parity check is correctness-only).
-onnxruntime-gpu>=1.18
-tensorrt>=10.0
+
+# Export verification uses ONNX Runtime. Use the CPU build: onnxruntime-gpu wheels
+# are pinned to a CUDA major (recent ones pull a cu13 build -> "libcudart.so.13"
+# load error on Colab's CUDA 12). The parity check is correctness-only, so CPU ORT
+# is sufficient and avoids the mismatch entirely.
+onnxruntime>=1.18
+
+# TensorRT: the bare `tensorrt` meta-package resolves to a cu13 build on current
+# indexes (-> libcudart.so.13 mismatch on CUDA 12). Pin the cu12 build explicitly.
+tensorrt-cu12>=10.0
 pycuda>=2024.1
 numpy>=1.26,<2.0
 pyyaml>=6.0
@@ -23,15 +35,7 @@ optimum-onnx>=0.1
 # Optimization / serving stack
 vllm>=0.4.2
 flash-attn>=2.5
-# Quantization backends (Phase 3). NOTE: the originally-planned autoawq and
-# auto-gptq are both deprecated and break against current transformers, so we use
-# their maintained successors:
-#   AWQ  -> llmcompressor (vLLM project)
-#   GPTQ -> gptqmodel
-#   INT8 -> bitsandbytes (calibration-free LLM.int8())
-# FP8 (Transformer Engine) is intentionally NOT listed — H100-only, not usable on
-# the Colab T4/A100 tiers this project targets.
-llmcompressor>=0.3
-gptqmodel>=1.4
+# INT8 quantization (calibration-free LLM.int8()). Lives in this stack because
+# bitsandbytes is transformers-version-agnostic; AWQ/GPTQ do not (see gpu-quant.txt).
 bitsandbytes>=0.43
 pynvml>=11.5
