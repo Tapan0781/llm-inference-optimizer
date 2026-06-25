@@ -25,7 +25,9 @@ ONNX graph
 InferenceEngine               (Phase 4)  →  eager / onnx / vllm backends
    │  profiler                (Phase 5)  →  latency + NVML power
    ▼
-benchmark sweep               (Phase 6)  →  TTFT / TPOT / tok-s / MFU  →  plots (Phase 7)
+benchmark sweep               (Phase 6)  →  TTFT / TPOT / tok-s / MFU  →  CSV / JSON
+   ▼
+analysis + plots              (notebook 04_analysis)  →  backend comparison, speedups
 ```
 
 Each stage is chained by **artifacts on disk** (an ONNX dir, a `.engine`, a quantized
@@ -71,7 +73,8 @@ src/optimization/    TensorRT engine build + quantization      ✅ Phase 3 (done
 src/serving/         unified InferenceEngine                   ✅ Phase 4 (eager/onnx/vllm validated)
 src/profiling/       PyTorch profiler + NVML power             ✅ Phase 5 (validated on Colab)
 src/benchmarking/    sweep runner + MFU                        ✅ Phase 6 (validated on Colab)
-notebooks/           Colab GPU workflows (00–04)
+notebooks/           Colab GPU workflows: 00 setup · 01 export · 02 optimize ·
+                     03 benchmark · 04 analysis (plots)   (all wired)
 tests/unit/          CPU-safe, run in CI
 tests/integration/   GPU-only, auto-skipped on CPU
 ```
